@@ -53,8 +53,15 @@ if all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]):
     cloudinary.config(
         cloud_name=CLOUDINARY_CLOUD_NAME,
         api_key=CLOUDINARY_API_KEY,
-        api_secret=CLOUDINARY_API_SECRET
+        api_secret=CLOUDINARY_API_SECRET,
+        secure=True
     )
+
+# Fix SSL certificate verification issues
+import ssl
+import certifi
+
+ssl._create_default_https_context = ssl._create_unverified_context
 
 st.set_page_config(page_title="Banner Capture", layout="wide")
 
@@ -64,29 +71,56 @@ st.set_page_config(page_title="Banner Capture", layout="wide")
 def upload_to_cloudinary(file_path, country_code, mode, slide_num):
     """Upload image to Cloudinary and return the URL."""
     if not all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]):
-        st.warning("⚠️ Cloudinary credentials not configured.")
+        st.warning("⚠️ Cloudinary credentials not configured. Please set them in .env file or Streamlit secrets.")
         return None, None
 
     try:
-        import requests
+        import hashlib
+        import base64
 
-        # Use direct API upload with SSL verification disabled
-        url = f"https://api.cloudinary.com/v1_1/{CLOUDINARY_CLOUD_NAME}/image/upload"
+        # Generate timestamp
+        timestamp = int(time.time())
 
-        with open(file_path, 'rb') as f:
-            files = {'file': f}
-            data = {
-                'upload_preset': 'unsigned_preset',  # Or use signed upload
-                'api_key': CLOUDINARY_API_KEY,
-                'timestamp': int(time.time()),
-                'folder': f"lg_banners/{country_code}/{mode}"
-            }
+        # Prepare upload parameters
+        folder_name = f"lg_banners/{country_code}/{mode}"
+        public_id = f"{country_code}_{mode}_hero_{slide_num}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-            response = requests.post(url, files=files, data=data, verify=False)
-            response.raise_for_status()
-            result = response.json()
+        # Method 1: Try using cloudinary SDK with proper config
+        try:
+            response = cloudinary.uploader.upload(
+                file_path,
+                folder=folder_name,
+                public_id=public_id,
+                resource_type="image",
+                overwrite=True,
+                use_filename=False
+            )
+            return response.get('secure_url'), response.get('public_id')
+        except Exception as sdk_error:
+            # Method 2: Fallback to direct API call with proper signature
+            import requests
 
-            return result.get('secure_url'), result.get('public_id')
+            # Create signature for authentication
+            params_to_sign = f"folder={folder_name}&public_id={public_id}&timestamp={timestamp}{CLOUDINARY_API_SECRET}"
+            signature = hashlib.sha1(params_to_sign.encode('utf-8')).hexdigest()
+
+            url = f"https://api.cloudinary.com/v1_1/{CLOUDINARY_CLOUD_NAME}/image/upload"
+
+            with open(file_path, 'rb') as f:
+                files = {'file': f}
+                data = {
+                    'api_key': CLOUDINARY_API_KEY,
+                    'timestamp': timestamp,
+                    'signature': signature,
+                    'folder': folder_name,
+                    'public_id': public_id
+                }
+
+                response = requests.post(url, files=files, data=data, verify=False)
+                response.raise_for_status()
+                result = response.json()
+
+                return result.get('secure_url'), result.get('public_id')
 
     except Exception as e:
         st.error(f"❌ Cloudinary upload failed: {str(e)}")
