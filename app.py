@@ -64,22 +64,30 @@ st.set_page_config(page_title="Banner Capture", layout="wide")
 def upload_to_cloudinary(file_path, country_code, mode, slide_num):
     """Upload image to Cloudinary and return the URL."""
     if not all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]):
-        st.warning("⚠️ Cloudinary credentials not configured. Please set them in .env file or Streamlit secrets.")
+        st.warning("⚠️ Cloudinary credentials not configured.")
         return None, None
 
     try:
-        folder_name = f"lg_banners/{country_code}/{mode}"
-        public_id = f"{country_code}_{mode}_hero_{slide_num}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        import requests
 
-        response = cloudinary.uploader.upload(
-            file_path,
-            folder=folder_name,
-            public_id=public_id,
-            resource_type="image",
-            overwrite=True
-        )
+        # Use direct API upload with SSL verification disabled
+        url = f"https://api.cloudinary.com/v1_1/{CLOUDINARY_CLOUD_NAME}/image/upload"
 
-        return response.get('secure_url'), response.get('public_id')
+        with open(file_path, 'rb') as f:
+            files = {'file': f}
+            data = {
+                'upload_preset': 'unsigned_preset',  # Or use signed upload
+                'api_key': CLOUDINARY_API_KEY,
+                'timestamp': int(time.time()),
+                'folder': f"lg_banners/{country_code}/{mode}"
+            }
+
+            response = requests.post(url, files=files, data=data, verify=False)
+            response.raise_for_status()
+            result = response.json()
+
+            return result.get('secure_url'), result.get('public_id')
+
     except Exception as e:
         st.error(f"❌ Cloudinary upload failed: {str(e)}")
         return None, None
