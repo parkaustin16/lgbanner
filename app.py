@@ -136,21 +136,56 @@ def save_to_airtable(country_code, mode, slide_num, image_url, cloudinary_id, ca
         return None
 
     try:
-        api = Api(AIRTABLE_API_KEY)
-        table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
+        # Method 1: Try using pyairtable with SSL fix
+        try:
+            api = Api(AIRTABLE_API_KEY)
+            table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
 
-        record = {
-            "Country": country_code.upper(),
-            "Mode": mode.capitalize(),
-            "Slide Number": slide_num,
-            "Image URL": image_url,
-            "Cloudinary ID": cloudinary_id,
-            "Capture Date": capture_date,
-            "Timestamp": datetime.now().isoformat()
-        }
+            record = {
+                "Country": country_code.upper(),
+                "Mode": mode.capitalize(),
+                "Slide Number": slide_num,
+                "Image URL": image_url,
+                "Cloudinary ID": cloudinary_id,
+                "Capture Date": capture_date,
+                "Timestamp": datetime.now().isoformat(),
+                # Optional: Add as attachment field for thumbnail preview in Airtable
+                "Image": [{"url": image_url}] if image_url else None
+            }
 
-        created_record = table.create(record)
-        return created_record['id']
+            created_record = table.create(record)
+            return created_record['id']
+
+        except Exception as pyairtable_error:
+            # Method 2: Fallback to direct requests API call
+            import requests
+
+            url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
+
+            headers = {
+                "Authorization": f"Bearer {AIRTABLE_API_KEY}",
+                "Content-Type": "application/json"
+            }
+
+            data = {
+                "fields": {
+                    "Country": country_code.upper(),
+                    "Mode": mode.capitalize(),
+                    "Slide Number": slide_num,
+                    "Image URL": image_url,
+                    "Cloudinary ID": cloudinary_id,
+                    "Capture Date": capture_date,
+                    "Timestamp": datetime.now().isoformat(),
+                    "Image": [{"url": image_url}] if image_url else None
+                }
+            }
+
+            response = requests.post(url, json=data, headers=headers, verify=False)
+            response.raise_for_status()
+            result = response.json()
+
+            return result.get('id')
+
     except Exception as e:
         st.error(f"❌ Airtable save failed: {str(e)}")
         return None
