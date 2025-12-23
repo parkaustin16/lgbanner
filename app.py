@@ -9,7 +9,20 @@ import streamlit as st
 import cloudinary
 import cloudinary.uploader
 from pyairtable import Api
+import subprocess
+import os
 
+# Check if chromium is installed, if not, install it
+@st.cache_resource
+def install_playwright_browsers():
+    try:
+        # This installs the necessary browser binaries
+        subprocess.run(["python", "-m", "playwright", "install", "chromium"], check=True)
+    except Exception as e:
+        st.error(f"Error installing browsers: {e}")
+
+# Call the function
+install_playwright_browsers()
 # Load environment variables from .env file if it exists
 try:
     from dotenv import load_dotenv
