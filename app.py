@@ -729,7 +729,7 @@ def main():
 
             # Create ZIP for download
             zip_buffer = io.BytesIO()
-            with zipfile.ZipFile(zip_buffer, "w") as zf:
+            with zipfile`.ZipFile(zip_buffer, "w") as zf:
                 for fpath in captured_files:
                     zf.write(fpath, os.path.basename(fpath))
 
