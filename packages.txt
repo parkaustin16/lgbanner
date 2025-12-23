@@ -14,3 +14,11 @@ libasound2
 libxfixes3
 libx11-6
 libxshmfence1
+fonts-noto-cjk
+fonts-noto-color-emoji
+fonts-thai-tlwg
+fonts-kacst
+fonts-freefont-ttf
+libgbm1
+libnss3
+libasound2

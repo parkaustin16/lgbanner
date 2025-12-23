@@ -13,16 +13,20 @@ import subprocess
 import os
 
 # Check if chromium is installed, if not, install it
+# Check if chromium and fonts are installed, if not, install them
 @st.cache_resource
 def install_playwright_browsers():
     try:
-        # Use sys.executable to ensure we use the same python path as Streamlit
-        # Added --with-deps as a backup for the linux environment
+        # 1. Install comprehensive fonts for all global LG regions
+        os.system(
+            "apt-get update && apt-get install -y fonts-noto-cjk fonts-noto-color-emoji fonts-thai-tlwg fonts-kacst fonts-freefont-ttf")
+
+        # 2. Install Playwright and its system dependencies
         subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+        subprocess.run([sys.executable, "-m", "playwright", "install-deps"], check=True)
     except Exception as e:
-        st.error(f"Error installing browsers: {e}")
-        # Optional: try to force install if the above fails
-        os.system(f"{sys.executable} -m playwright install chromium")
+        st.error(f"Error installing browsers/fonts: {e}")
+
 
 # Call the function
 install_playwright_browsers()
