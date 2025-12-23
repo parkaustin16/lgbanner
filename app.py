@@ -46,7 +46,7 @@ CLOUDINARY_API_SECRET = get_config('CLOUDINARY_API_SECRET')
 # Airtable Configuration
 AIRTABLE_API_KEY = get_config('AIRTABLE_API_KEY')
 AIRTABLE_BASE_ID = get_config('AIRTABLE_BASE_ID')
-AIRTABLE_TABLE_NAME = get_config('AIRTABLE_TABLE_NAME', 'captures')
+AIRTABLE_TABLE_NAME = get_config('AIRTABLE_TABLE_NAME', 'Banner Captures')
 
 # Configure Cloudinary only if credentials are available
 if all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]):
@@ -60,7 +60,9 @@ if all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]):
 # Fix SSL certificate verification issues
 import ssl
 import certifi
+import urllib3
 
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 ssl._create_default_https_context = ssl._create_unverified_context
 
 st.set_page_config(page_title="Banner Capture", layout="wide")
@@ -568,6 +570,63 @@ def main():
 
     with st.sidebar:
         st.header("Settings")
+
+        # Add Airtable Debug Test Button
+        if st.button("🔍 Test Airtable Connection"):
+            try:
+                import requests
+
+                st.write("**Testing GET (Read):**")
+                url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
+                headers = {
+                    "Authorization": f"Bearer {AIRTABLE_API_KEY}",
+                }
+                response = requests.get(url, headers=headers, verify=False)
+
+                st.write(f"- Status Code: {response.status_code}")
+                st.write(f"- Base ID: `{AIRTABLE_BASE_ID}`")
+                st.write(f"- Table Name: `{AIRTABLE_TABLE_NAME}`")
+                st.write(f"- Token starts with: `{AIRTABLE_API_KEY[:7]}...`")
+
+                if response.status_code == 200:
+                    st.success("✅ READ access works!")
+                else:
+                    st.error(f"❌ READ failed: {response.text}")
+
+                st.divider()
+                st.write("**Testing POST (Write):**")
+
+                # Test creating a record
+                test_data = {
+                    "fields": {
+                        "Country": "TEST",
+                        "Mode": "Test",
+                        "Slide Number": 1,
+                        "Image URL": "https://example.com/test.png",
+                        "Cloudinary ID": "test_id",
+                        "Capture Date": datetime.now().strftime('%Y-%m-%d'),
+                        "Date": datetime.now().strftime('%Y-%m-%d'),
+                        "Timestamp": datetime.now().isoformat()
+                    }
+                }
+
+                write_response = requests.post(url, json=test_data, headers=headers, verify=False)
+
+                st.write(f"- Status Code: {write_response.status_code}")
+
+                if write_response.status_code in [200, 201]:
+                    st.success("✅ WRITE access works!")
+                    st.write("Test record created successfully!")
+                    st.json(write_response.json())
+                else:
+                    st.error(f"❌ WRITE failed: {write_response.text}")
+                    st.write("**Full response:**")
+                    st.code(write_response.text)
+
+            except Exception as e:
+                st.error(f"❌ Test failed: {str(e)}")
+
+        st.divider()
 
         countries = [
             ("au", "Australia (AU)"),
