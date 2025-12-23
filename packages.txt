@@ -1,4 +1,3 @@
-libevent-2.1-7
 libnss3
 libatk1.0-0
 libatk-bridge2.0-0
@@ -12,3 +11,6 @@ libgbm1
 libpango-1.0-0
 libcairo2
 libasound2
+libxfixes3
+libx11-6
+libxshmfence1
