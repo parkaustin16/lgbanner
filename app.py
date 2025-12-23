@@ -602,7 +602,6 @@ def main():
                         "Image URL": "https://example.com/test.png",
                         "Cloudinary ID": "test_id",
                         "Capture Date": datetime.now().strftime('%Y-%m-%d'),
-                        "Date": datetime.now().strftime('%Y-%m-%d'),
                         "Timestamp": datetime.now().isoformat()
                     }
                 }
