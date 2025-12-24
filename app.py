@@ -472,7 +472,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                 pass
 
             # Get indicators from ONLY the hero carousel
-            indicators = hero_carousel.query_selector_all(".cmp-carousel__indicator")
+            indicators = list(hero_carousel.query_selector_all(".cmp-carousel__indicator"))
             num_slides = len(indicators)
             log(f"📸 Found {num_slides} banners in HERO carousel.")
 
@@ -483,11 +483,6 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
             for i in range(num_slides):
                 log(f"📷 Processing slide {i + 1} of {num_slides}...")
-
-                # Re-query indicators
-                indicators = hero_carousel.query_selector_all(".cmp-carousel__indicator")
-                if i >= len(indicators):
-                    continue
 
                 # 1. DEFINE THE SELECTOR FIRST (Fixes the local variable error)
                 active_slide_selector = f".cmp-carousel__item.swiper-slide-active[data-swiper-slide-index='{i}']"
@@ -523,7 +518,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                 apply_clean_styles(page)
 
                 # Get the data-swiper-slide-index for the active slide
-                active_slide_selector = f".cmp-carousel__item.swiper-slide-active[data-swiper-slide-index='{i}']"
+                active_slide_selector = f".cmp-carousel__item.swiper-slide-active[data-swiper-slide-index='{i}']:not(.swiper-slide-duplicate)"
 
                 try:
                     page.wait_for_selector(active_slide_selector, timeout=15000)
