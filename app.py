@@ -12,6 +12,7 @@ from pyairtable import Api
 import subprocess
 import os
 
+
 # Check if chromium is installed, if not, install it
 # Check if chromium and fonts are installed, if not, install them
 @st.cache_resource
@@ -209,12 +210,11 @@ def save_to_airtable(country_code, mode, slide_num, image_url, cloudinary_id, ca
 # --- CORE CAPTURE LOGIC (Enhanced with Hero Detection) ---
 
 def apply_clean_styles(page_obj):
-    """Comprehensive CSS cleanup."""
+    """Comprehensive CSS cleanup with Sharpening and Speed fixes."""
     page_obj.evaluate("""
         document.querySelectorAll('.c-notification-banner').forEach(el => el.remove());
         const style = document.createElement('style');
         style.innerHTML = `
-            /* ADDED: .c-membership-popup to target the registration overlay */
             [class*="chat"], [id*="chat"], [class*="proactive"], 
         .alk-container, #genesys-chat, .genesys-messenger,
         .floating-button-portal, #WAButton, .embeddedServiceHelpButton,
@@ -225,6 +225,23 @@ def apply_clean_styles(page_obj):
         .c-notification-banner, .c-notification-banner *, .c-notification-banner__wrap,
         .open-button, .js-video-pause, .js-video-play, [aria-label*="Pausar"], [aria-label*="video"]
             { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
+
+            /* SPEED: Disable transitions for instant navigation */
+            *, *::before, *::after {
+                transition-duration: 0s !important;
+                animation-duration: 0s !important;
+                transition-delay: 0s !important;
+                animation-delay: 0s !important;
+            }
+
+            /* Sharpness Fixes: Disable smoothing that causes blur during screenshots */
+            .cmp-carousel__item, .c-hero-banner, img {
+                image-rendering: -webkit-optimize-contrast !important;
+                image-rendering: crisp-edges !important;
+                transform: translateZ(0) !important;
+                backface-visibility: hidden !important;
+                perspective: 1000 !important;
+            }
         `;
         document.head.appendChild(style);
 
@@ -237,6 +254,9 @@ def apply_clean_styles(page_obj):
         opacitySelectors.forEach(s => {
             document.querySelectorAll(s).forEach(el => el.style.setProperty('opacity', '0', 'important'));
         });
+
+        // Pause videos immediately to prevent motion blur
+        document.querySelectorAll('video').forEach(v => v.pause());
     """)
 
 
@@ -252,10 +272,8 @@ def find_hero_carousel(page, log_callback=None):
 
     log("🔍 Detecting hero carousel...")
 
-    # ADDED: Centralized list of wrappers to exclude
     excluded_wrappers = ".c-notification-banner, .l-cookie-teaser, .c-membership-popup"
 
-    # Strategy 1: Look for carousel in common hero/main sections
     hero_selectors = [
         "main .cmp-carousel",
         ".main-content .cmp-carousel",
@@ -269,15 +287,12 @@ def find_hero_carousel(page, log_callback=None):
     hero_carousel = None
     for selector in hero_selectors:
         try:
-            # ADDED: Changed to query_selector_all to allow skipping excluded carousels
             elements = page.query_selector_all(selector)
             for element in elements:
-                # ADDED: Check if this specific element is inside an excluded wrapper
                 is_in_excluded = element.evaluate(f"el => !!el.closest('{excluded_wrappers}')")
                 if is_in_excluded:
                     continue
 
-                # Original validation logic
                 indicators = element.query_selector_all(".cmp-carousel__indicator")
                 if len(indicators) > 0:
                     bbox = element.bounding_box()
@@ -299,7 +314,6 @@ def find_hero_carousel(page, log_callback=None):
             viewport_width = viewport_size['width'] if viewport_size else 1280
 
             for idx, carousel in enumerate(all_carousels):
-                # ADDED: Explicitly skip carousels inside excluded notification/cookie wrappers
                 is_in_excluded = carousel.evaluate(f"el => !!el.closest('{excluded_wrappers}')")
                 if is_in_excluded:
                     log(f"   Carousel {idx}: SKIPPED (inside {excluded_wrappers})")
@@ -313,21 +327,17 @@ def find_hero_carousel(page, log_callback=None):
                 if not bbox:
                     continue
 
-                # FILTER 1: Skip notification/alert banners
                 if bbox['height'] < 200:
                     log(f"   Carousel {idx}: SKIPPED (too short: {bbox['height']:.0f}px)")
                     continue
 
-                # FILTER 2: Skip narrow carousels
                 if bbox['width'] < viewport_width * 0.5:
                     log(f"   Carousel {idx}: SKIPPED (too narrow: {bbox['width']:.0f}px)")
                     continue
 
-                # Look for hero banner content inside
                 has_hero_banner = carousel.query_selector(".c-hero-banner") is not None
                 has_hero_image = carousel.query_selector(".c-image__item, .cmp-image") is not None
 
-                # FILTER 3: Skip if it looks like legal/notification content (Original List Preserved)
                 try:
                     carousel_text = carousel.inner_text().lower()
                     notification_keywords = [
@@ -341,7 +351,6 @@ def find_hero_carousel(page, log_callback=None):
                 except:
                     pass
 
-                # Scoring logic (Original Scores Preserved)
                 score = 0
                 if has_hero_banner:
                     score += 100
@@ -359,7 +368,6 @@ def find_hero_carousel(page, log_callback=None):
                 elif bbox['height'] > 200:
                     score += 10
 
-                # Position Scoring
                 if 100 < bbox['y'] < 600:
                     score += 25
                 elif 50 < bbox['y'] < 100:
@@ -367,7 +375,6 @@ def find_hero_carousel(page, log_callback=None):
                 elif bbox['y'] < 50:
                     score -= 100
 
-                # Width Scoring
                 if bbox['width'] > viewport_width * 0.9:
                     score += 20
                 elif bbox['width'] > viewport_width * 0.8:
@@ -406,6 +413,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
         if log_callback:
             log_callback(message)
 
+    # Resolution Boost: We set a high device_pixel_ratio to avoid blurriness
     size: ViewportSize = {'width': 1920, 'height': 720} if mode == 'desktop' else {'width': 360, 'height': 480}
 
     session_folder_name = f"{country_code}_{mode}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -414,17 +422,18 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
     with sync_playwright() as p:
         log("🚀 Launching browser...")
-        # Add these specific flags for Cloud/Linux environments
         browser = p.chromium.launch(
             headless=True,
             args=[
-                "--no-sandbox",  # Crucial for Linux containers
-                "--disable-setuid-sandbox",  # Crucial for Linux containers
-                "--disable-dev-shm-usage",  # Prevents crashes in low-memory environments
-                "--disable-gpu"  # Servers don't have GPUs
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu"
             ]
         )
-        context = browser.new_context(viewport=size)
+
+        # USE DPR 2.0 FOR SHARPER CAPTURES
+        context = browser.new_context(viewport=size, device_scale_factor=2)
         page = context.new_page()
 
         def block_chat_requests(route):
@@ -440,170 +449,152 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
         try:
             log(f"🌐 Navigating to {url}...")
-            page.goto(url, wait_until="load", timeout=90000)
+            # SPEED FIX: Use domcontentloaded for faster start
+            page.goto(url, wait_until="domcontentloaded", timeout=90000)
 
-            # Cookie Acceptance
             try:
                 accept_btn = page.locator("#onetrust-accept-btn-handler")
                 if accept_btn.is_visible(timeout=5000):
                     log("🍪 Accepting cookies...")
                     accept_btn.click()
-                    time.sleep(2)
+                    # Shortened wait after cookie acceptance
+                    time.sleep(0.5)
             except:
                 pass
 
-            # Wait for any carousel to load
             page.wait_for_selector("main .cmp-carousel, .main .cmp-carousel, #contents .cmp-carousel", timeout=30000)
 
-            # Find the hero carousel specifically
             hero_carousel = find_hero_carousel(page, log_callback)
 
             if not hero_carousel:
                 log("❌ Could not identify hero carousel")
                 return
 
-            try:
-                pause_btn = hero_carousel.query_selector(".js-carousel-pause")
-                if pause_btn and pause_btn.is_visible():
-                    log("⏸️ Pausing carousel autoplay...")
-                    pause_btn.click(force=True)
-                    time.sleep(1)
-            except:
-                pass
-
-            # Get indicators from ONLY the hero carousel
             indicators = list(hero_carousel.query_selector_all(".cmp-carousel__indicator"))
             num_slides = len(indicators)
-            log(f"📸 Found {num_slides} banners in HERO carousel.")
+            log(f"📸 Found {num_slides} indicators in carousel.")
 
-            if num_slides > 0:
-                log("🔄 Resetting to first slide...")
-                indicators[0].click(force=True)
-                time.sleep(2)
+            # TRACKER: To prevent capturing the same banner twice
+            captured_signatures = []
 
             for i in range(num_slides):
-                log(f"📷 Processing slide {i + 1} of {num_slides}...")
+                slide_num = i + 1
+                success = False
 
-                # 1. DEFINE THE SELECTOR FIRST (Fixes the local variable error)
-                active_slide_selector = f".cmp-carousel__item.swiper-slide-active[data-swiper-slide-index='{i}']"
+                # ATTEMPT LOOP: Handles mobile snapping/duplicates
+                for attempt in range(4):  # Increased to 4 attempts for tricky sites
+                    log(f"   Selecting slide {slide_num} (Attempt {attempt + 1})...")
 
-                # 2. CLICK THE INDICATOR
-                indicators[i].click(force=True)
-
-                # 3. MINIMAL LOAD FIX: Force lazy-load to trigger by scrolling & waiting for pixels
-                try:
-                    # Remove the lazy attribute and scroll to trigger the download
+                    # 1. Force the swiper state & stop autoplay via JS
                     page.evaluate(f"""
-                                    () => {{
-                                        const slide = document.querySelector("{active_slide_selector}");
-                                        if (slide) {{
-                                            const img = slide.querySelector('img');
-                                            if (img) img.removeAttribute('loading');
-                                            slide.scrollIntoView();
-                                        }}
-                                    }}
-                                """)
-
-                    # Wait for the image to have actual physical pixels (naturalWidth)
-                    page.wait_for_function(f"""
-                                    () => {{
-                                        const img = document.querySelector("{active_slide_selector} img");
-                                        return !img || (img.complete && img.naturalWidth > 0);
-                                    }}
-                                """, timeout=10000)
-                except:
-                    pass  # Don't let a timeout break the app
-
-                # Apply styles immediately after click
-                apply_clean_styles(page)
-
-                # Get the data-swiper-slide-index for the active slide
-                active_slide_selector = f".cmp-carousel__item.swiper-slide-active[data-swiper-slide-index='{i}']:not(.swiper-slide-duplicate)"
-
-                try:
-                    page.wait_for_selector(active_slide_selector, timeout=15000)
-                except:
-                    active_slide_selector = ".cmp-carousel__item.swiper-slide-active"
-                    page.wait_for_selector(active_slide_selector, timeout=15000)
-
-                # Wait for image/background to load and animations to complete
-                try:
-                    page.wait_for_function(f"""
-                        () => {{
-                            const slide = document.querySelector('{active_slide_selector}');
-                            if (!slide) return false;
-
-                            // Check if images are loaded
-                            const img = slide.querySelector('img');
-                            const imgReady = img ? (img.complete && img.naturalWidth > 0) : false;
-
-                            // Check if background images are loaded
-                            const bgDiv = slide.querySelector('.c-image__item, .cmp-image, .c-hero-banner');
-                            const bgStyle = bgDiv ? window.getComputedStyle(bgDiv).backgroundImage : "";
-                            const bgReady = bgStyle && bgStyle !== 'none' && bgStyle !== 'initial';
-
-                            // Check if slide transition animation is complete
-                            const transform = window.getComputedStyle(slide.parentElement).transform;
-                            const isStable = transform !== 'none'; // Has positioning applied
-
-                            return (imgReady || bgReady) && isStable;
+                        (idx) => {{
+                            const car = document.querySelector('.cmp-carousel');
+                            if (car && car.swiper) {{
+                                car.swiper.autoplay.stop();
+                                // Force zero speed for instant jump to avoid animation blur
+                                car.swiper.params.speed = 0;
+                                if (typeof car.swiper.slideToLoop === 'function') {{
+                                    car.swiper.slideToLoop(idx);
+                                }} else {{
+                                    car.swiper.slideTo(idx);
+                                }}
+                            }} else {{
+                                const inds = document.querySelectorAll('.cmp-carousel__indicator');
+                                if (inds[idx]) inds[idx].click();
+                            }}
                         }}
-                    """, timeout=15000)
-                except:
-                    # Fallback to short sleep if wait fails
+                    """, i)
+
+                    # 2. Hard wait for visual stability (Reduced to 1s because transitions are disabled)
                     time.sleep(1.0)
 
-                filename = f"{country_code}_{mode}_hero_{i + 1}.png"
-                filepath = os.path.join(session_path, filename)
+                    # 3. Apply styles for clean capture
+                    apply_clean_styles(page)
 
-                # Try multiple selectors for the banner element
-                element = None
-                banner_selectors = [
-                    f"{active_slide_selector} .c-hero-banner",
-                    f"{active_slide_selector} .cmp-image",
-                    f"{active_slide_selector} .c-image",
-                    active_slide_selector
-                ]
+                    # 4. Detect "Current Slide Signature" to verify uniqueness
+                    signature_data = page.evaluate(f"""
+                        (targetIdx) => {{
+                            const active = document.querySelector(`.swiper-slide-active[data-swiper-slide-index="${{targetIdx}}"]`) 
+                                           || document.querySelector('.swiper-slide-active');
 
-                for selector in banner_selectors:
-                    element = page.query_selector(selector)
+                            if (!active) return {{ sig: "null", match: false }};
+
+                            const img = active.querySelector('img');
+                            const text = active.innerText.trim().substring(0, 80);
+                            const currentIdx = active.getAttribute('data-swiper-slide-index');
+
+                            // FORCE A REFLOW to fix sub-pixel blur before return
+                            active.offsetHeight; 
+
+                            return {{
+                                sig: (img ? img.src : 'no-img') + "|" + text,
+                                match: currentIdx == targetIdx
+                            }};
+                        }}
+                    """, i)
+
+                    current_sig = signature_data['sig']
+                    is_correct_index = signature_data['match']
+
+                    if current_sig in captured_signatures and attempt < 3:
+                        log(f"   ⚠️ Duplicate detected. Retrying navigation...")
+                        time.sleep(0.5)
+                        continue
+
+                    if not is_correct_index and attempt < 3:
+                        log(f"   ⚠️ Swiper active index mismatch. Retrying...")
+                        continue
+
+                    # 5. Capture Logic
+                    active_slide_selector = f".cmp-carousel__item.swiper-slide-active[data-swiper-slide-index='{i}']"
+                    try:
+                        page.wait_for_selector(active_slide_selector, timeout=2000)
+                    except:
+                        active_slide_selector = ".cmp-carousel__item.swiper-slide-active"
+
+                    # SPEED FIX: Use JPEG instead of PNG for faster processing
+                    filename = f"{country_code}_{mode}_hero_{slide_num}.jpg"
+                    filepath = os.path.join(session_path, filename)
+
+                    element = None
+                    banner_selectors = [
+                        f"{active_slide_selector} .c-hero-banner",
+                        f"{active_slide_selector} .cmp-image",
+                        active_slide_selector
+                    ]
+
+                    for selector in banner_selectors:
+                        element = page.query_selector(selector)
+                        if element: break
+
                     if element:
+                        element.scroll_into_view_if_needed()
+                        # Shortened wait for settling
+                        time.sleep(0.2)
+
+                        # Use scale='device' for the screenshot to respect our DPR 2.0
+                        # SPEED FIX: Save as JPEG to reduce file size and encoding time
+                        element.screenshot(path=filepath, scale="device", type="jpeg", quality=95)
+                        captured_signatures.append(current_sig)
+                        log(f"✅ Captured: {filename}")
+
+                        cloudinary_url = None
+                        airtable_id = None
+
+                        if upload_to_cloud:
+                            log(f"☁️ Uploading to Cloud...")
+                            cloudinary_url, cloudinary_id = upload_to_cloudinary(filepath, country_code, mode,
+                                                                                 slide_num)
+                            if cloudinary_url:
+                                airtable_id = save_to_airtable(country_code, mode, slide_num, cloudinary_url,
+                                                               cloudinary_id, datetime.now().strftime('%Y-%m-%d'))
+
+                        yield filepath, slide_num, cloudinary_url, airtable_id
+                        success = True
                         break
 
-                if element:
-                    element.screenshot(path=filepath)
-                    log(f"✅ Captured: {filename}")
-
-                    # Upload to Cloudinary and save to Airtable if enabled
-                    cloudinary_url = None
-                    cloudinary_id = None
-                    airtable_id = None
-
-                    if upload_to_cloud:
-                        log(f"☁️ Uploading to Cloudinary...")
-                        cloudinary_url, cloudinary_id = upload_to_cloudinary(
-                            filepath, country_code, mode, i + 1
-                        )
-
-                        if cloudinary_url:
-                            log(f"✅ Cloudinary upload successful")
-                            log(f"💾 Saving metadata to Airtable...")
-
-                            airtable_id = save_to_airtable(
-                                country_code,
-                                mode,
-                                i + 1,
-                                cloudinary_url,
-                                cloudinary_id,
-                                datetime.now().strftime('%Y-%m-%d')
-                            )
-
-                            if airtable_id:
-                                log(f"✅ Airtable record created: {airtable_id}")
-
-                    yield filepath, i + 1, cloudinary_url, airtable_id
-                else:
-                    log(f"⚠️ Could not find banner element for slide {i + 1}")
+                if not success:
+                    log(f"   ❌ Failed to capture unique version of slide {slide_num} after 4 attempts")
 
         except Exception as e:
             log(f"❌ Error: {str(e)}")
@@ -617,146 +608,83 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 def main():
     st.title("📸 LG Hero Banner Capture")
 
-    # Display configuration status
     with st.expander("⚙️ Configuration Status", expanded=False):
         cloudinary_configured = all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET])
         airtable_configured = all([AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME])
-
         st.write("**Cloudinary:**", "✅ Configured" if cloudinary_configured else "❌ Not configured")
         st.write("**Airtable:**", "✅ Configured" if airtable_configured else "❌ Not configured")
-
-        if not cloudinary_configured or not airtable_configured:
-            st.info("💡 Set credentials in `.env` file locally or in Streamlit Cloud secrets")
 
     if 'log_messages' not in st.session_state:
         st.session_state.log_messages = []
 
     with st.sidebar:
         st.header("Settings")
-
-        # Add Airtable Debug Test Button
         if st.button("🔍 Test Airtable Connection"):
             try:
                 import requests
+                # 1. READ TEST
+                read_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
+                headers = {"Authorization": f"Bearer {AIRTABLE_API_KEY}"}
+                read_response = requests.get(read_url, headers=headers, verify=False)
 
-                st.write("**Testing GET (Read):**")
-                url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
-                headers = {
-                    "Authorization": f"Bearer {AIRTABLE_API_KEY}",
-                }
-                response = requests.get(url, headers=headers, verify=False)
-
-                st.write(f"- Status Code: {response.status_code}")
-                st.write(f"- Base ID: `{AIRTABLE_BASE_ID}`")
-                st.write(f"- Table Name: `{AIRTABLE_TABLE_NAME}`")
-                st.write(f"- Token starts with: `{AIRTABLE_API_KEY[:7]}...`")
-
-                if response.status_code == 200:
+                if read_response.status_code == 200:
                     st.success("✅ READ access works!")
-                else:
-                    st.error(f"❌ READ failed: {response.text}")
 
-                st.divider()
-                st.write("**Testing POST (Write):**")
-
-                # Test creating a record
-                test_data = {
-                    "fields": {
-                        "Country": "TEST",
-                        "Mode": "Test",
-                        "Slide Number": 1,
-                        "Image URL": "https://example.com/test.png",
-                        "Cloudinary ID": "test_id",
-                        "Capture Date": datetime.now().strftime('%Y-%m-%d'),
-                        "Timestamp": datetime.now().isoformat()
+                    # 2. WRITE TEST (Functional check without the info text)
+                    write_data = {
+                        "fields": {
+                            "Country": "TEST",
+                            "Mode": "Test",
+                            "Slide Number": 0,
+                            "Capture Date": datetime.now().strftime('%Y-%m-%d'),
+                            "Timestamp": "CONNECTION_TEST"
+                        }
                     }
-                }
+                    write_response = requests.post(read_url, json=write_data, headers=headers, verify=False)
 
-                write_response = requests.post(url, json=test_data, headers=headers, verify=False)
-
-                st.write(f"- Status Code: {write_response.status_code}")
-
-                if write_response.status_code in [200, 201]:
-                    st.success("✅ WRITE access works!")
-                    st.write("Test record created successfully!")
-                    st.json(write_response.json())
+                    if write_response.status_code == 200:
+                        st.success("✅ WRITE access works!")
+                        # Cleanup test record
+                        record_id = write_response.json().get('id')
+                        requests.delete(f"{read_url}/{record_id}", headers=headers, verify=False)
+                    else:
+                        st.error(f"❌ WRITE failed: {write_response.text}")
                 else:
-                    st.error(f"❌ WRITE failed: {write_response.text}")
-                    st.write("**Full response:**")
-                    st.code(write_response.text)
-
+                    st.error(f"❌ READ failed: {read_response.text}")
             except Exception as e:
                 st.error(f"❌ Test failed: {str(e)}")
 
         st.divider()
 
         countries = [
-            ("au", "Australia (AU)"),
-            ("uk", "United Kingdom (UK)"),
-            ("ca_en", "Canada (CA_EN)"),
-            ("ca_fr", "Canada (CA_FR)"),
-            ("fr", "France (FR)"),
-            ("de", "Germany (DE)"),
-            ("it", "Italy (IT)"),
-            ("es", "Spain (ES)"),
-            ("nl", "Netherlands (NL)"),
-            ("se", "Sweden (SE)"),
-            ("pt", "Portugal (PT)"),
-            ("hu", "Hungary (HU)"),
-            ("pl", "Poland (PL)"),
-            ("at", "Austria (AT)"),
-            ("cz", "Czech Republic (CZ)"),
-            ("mx", "Mexico (MX)"),
-            ("br", "Brazil (BR)"),
-            ("ar", "Argentina (AR)"),
-            ("cl", "Chile (CL)"),
-            ("co", "Colombia (CO)"),
-            ("pe", "Peru (PE)"),
-            ("pa", "Panama (PA)"),
-            ("jp", "Japan (JP)"),
-            ("hk", "Hong Kong (HK)"),
-            ("sg", "Singapore (SG)"),
-            ("my", "Malaysia (MY)"),
-            ("th", "Thailand (TH)"),
-            ("vn", "Vietnam (VN)"),
-            ("ph", "Philippines (PH)"),
-            ("in", "Indonesia (IN)"),
+            ("au", "Australia (AU)"), ("uk", "United Kingdom (UK)"), ("ca_en", "Canada (CA_EN)"),
+            ("ca_fr", "Canada (CA_FR)"), ("fr", "France (FR)"), ("de", "Germany (DE)"),
+            ("it", "Italy (IT)"), ("es", "Spain (ES)"), ("nl", "Netherlands (NL)"),
+            ("se", "Sweden (SE)"), ("pt", "Portugal (PT)"), ("hu", "Hungary (HU)"),
+            ("pl", "Poland (PL)"), ("at", "Austria (AT)"), ("cz", "Czech Republic (CZ)"),
+            ("mx", "Mexico (MX)"), ("br", "Brazil (BR)"), ("ar", "Argentina (AR)"),
+            ("cl", "Chile (CL)"), ("co", "Colombia (CO)"), ("pe", "Peru (PE)"),
+            ("pa", "Panama (PA)"), ("jp", "Japan (JP)"), ("hk", "Hong Kong (HK)"),
+            ("sg", "Singapore (SG)"), ("my", "Malaysia (MY)"), ("th", "Thailand (TH)"),
+            ("vn", "Vietnam (VN)"), ("ph", "Philippines (PH)"), ("in", "Indonesia (IN)"),
             ("tw", "Taiwan (TW)")
         ]
 
         country_labels = [label for _, label in countries]
         country_codes = [code for code, _ in countries]
-
         default_index = country_codes.index("jp")
-
-        selected_country = st.selectbox(
-            "Country/Region",
-            options=country_labels,
-            index=default_index
-        )
-
+        selected_country = st.selectbox("Country/Region", options=country_labels, index=default_index)
         site = country_codes[country_labels.index(selected_country)]
         mode = st.selectbox("View Mode", options=["desktop", "mobile"])
 
         st.divider()
         st.subheader("☁️ Airtable Upload")
-
-        # Check if credentials are configured
-        cloudinary_ready = all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET])
-        airtable_ready = all([AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME])
-
-        upload_enabled = st.checkbox(
-            "Upload to Cloudinary & Airtable",
-            value=False,
-            disabled=not (cloudinary_ready and airtable_ready)
-        )
-
-        if not (cloudinary_ready and airtable_ready):
-            st.warning("⚠️ Cloud upload disabled: Configure credentials first")
+        upload_enabled = st.checkbox("Upload to Cloudinary & Airtable", value=False, disabled=not (
+                all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]) and all(
+            [AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME])))
 
         st.divider()
         run_btn = st.button("Start Capture", type="primary", use_container_width=True)
-
         st.divider()
         st.subheader("Activity Log")
         log_placeholder = st.empty()
@@ -774,42 +702,23 @@ def main():
         st.subheader(f"Results: {site.upper()} ({mode})")
         cols = st.columns(3)
 
-        # Run the generator
         for idx, result in enumerate(
                 capture_hero_banners(url, site, mode, log_callback=add_log, upload_to_cloud=upload_enabled)):
-            img_path, slide_num = result[0], result[1]
-            cloudinary_url = result[2] if len(result) > 2 else None
-            airtable_id = result[3] if len(result) > 3 else None
-
+            img_path, slide_num, cloudinary_url, airtable_id = result
             captured_files.append(img_path)
-
             with cols[idx % 3]:
                 st.image(img_path, caption=f"Slide {slide_num}")
-                if cloudinary_url:
-                    st.caption(f"☁️ [View on Cloudinary]({cloudinary_url})")
+                if cloudinary_url: st.caption(f"☁️ [View on Cloudinary]({cloudinary_url})")
 
         if captured_files:
             st.divider()
-
-            # Create ZIP for download
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, "w") as zf:
-                for fpath in captured_files:
-                    zf.write(fpath, os.path.basename(fpath))
-
-            st.download_button(
-                label="📥 Download All Banners (ZIP)",
-                data=zip_buffer.getvalue(),
-                file_name=f"banners_{site}_{mode}_{datetime.now().strftime('%Y%m%d')}.zip",
-                mime="application/zip",
-                use_container_width=True
-            )
+                for fpath in captured_files: zf.write(fpath, os.path.basename(fpath))
+            st.download_button(label="📥 Download All Banners (ZIP)", data=zip_buffer.getvalue(),
+                               file_name=f"banners_{site}_{mode}_{datetime.now().strftime('%Y%m%d')}.zip",
+                               mime="application/zip", use_container_width=True)
             st.success(f"✅ Capture complete! {len(captured_files)} images saved.")
-
-            if upload_enabled:
-                st.info(f"☁️ {len(captured_files)} images uploaded to Cloudinary and logged in Airtable")
-        else:
-            st.warning("No banners were captured. Check the activity log for details.")
 
 
 if __name__ == "__main__":
