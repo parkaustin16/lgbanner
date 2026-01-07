@@ -149,6 +149,29 @@ def upload_to_cloudinary(file_path, country_code, mode, slide_num):
 # --- AIRTABLE INTEGRATION ---
 
 def save_to_airtable(country_code, mode, slide_num, image_url, cloudinary_id, capture_date):
+
+    # 1. Initialize the list BEFORE your loop starts
+    image_urls = [] 
+
+    # 2. Your loop where you upload to Cloudinary
+    for item in your_items_to_upload:
+        # ... (your upload code here) ...
+        # Let's say your upload result is 'res'
+        url = res['secure_url'] 
+    
+        # Add the URL to our list
+        image_urls.append(url)
+
+    # 3. Call the function AFTER the loop is finished
+    if image_urls:
+        save_batch_to_airtable(
+            country_code="au", 
+            mode="pc", 
+            image_urls=image_urls,  # Passing the list we just built
+            capture_date="12/1/2025"
+        )
+
+    urls_joined = "\n".join(image_urls)
     """Save capture metadata to Airtable."""
     if not all([AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME]):
         st.warning("⚠️ Airtable credentials not configured. Please set them in .env file or Streamlit secrets.")
