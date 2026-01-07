@@ -149,71 +149,58 @@ def upload_to_cloudinary(file_path, country_code, mode, slide_num):
 # --- AIRTABLE INTEGRATION ---
 
 def save_to_airtable(country_code, mode, slide_num, image_url, cloudinary_id, capture_date):
-
-    # 1. Initialize the list BEFORE your loop starts
-    image_urls = [] 
-
-    # 2. Your loop where you upload to Cloudinary
-    for item in your_items_to_upload:
-        # ... (your upload code here) ...
-        # Let's say your upload result is 'res'
-        url = res['secure_url'] 
-    
-        # Add the URL to our list
-        image_urls.append(url)
-
-    # 3. Call the function AFTER the loop is finished
-    if image_urls:
-        save_batch_to_airtable(
-            country_code="au", 
-            mode="pc", 
-            image_urls=image_urls,  # Passing the list we just built
-            capture_date="12/1/2025"
-        )
-
-    urls_joined = "\n".join(image_urls)
     """Save capture metadata to Airtable."""
     if not all([AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME]):
         st.warning("⚠️ Airtable credentials not configured. Please set them in .env file or Streamlit secrets.")
         return None
-        
+
     try:
-        # 1. Format the Name field: au-hero-banner-pc-gp1
-        # Assumes mode is 'PC' or 'Mobile' and gp suffix logic
-        formatted_name = f"{country_code.lower()}-hero-banner-{mode.lower()}-gp1"
-        
-        # 2. Join URLs into a single string (separated by newlines or commas)
-        urls_string = "\n".join(image_urls)
-
-        # Record Payload
-        record_fields = {
-            "Name": formatted_name,
-            "Country": country_code.capitalize(), # e.g. Australia
-            "Date": capture_date,
-            "Banner Type": mode.upper(),
-            "URLs": urls_string,
-            "Timestamp": datetime.now().isoformat()
-        }
-
-        # Attempt Save via pyairtable
+        # Method 1: Try using pyairtable with SSL fix
         try:
             api = Api(AIRTABLE_API_KEY)
             table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
-            created_record = table.create(record_fields)
+
+            record = {
+                "Country": country_code.upper(),
+                "Mode": mode.capitalize(),
+                "Slide Number": slide_num,
+                "Image URL": image_url,
+                "Cloudinary ID": cloudinary_id,
+                "Capture Date": capture_date,
+                "Timestamp": datetime.now().isoformat(),
+            }
+
+            created_record = table.create(record)
             return created_record['id']
-            
-        except Exception:
-            # Fallback to direct requests API
+
+        except Exception as pyairtable_error:
+            # Method 2: Fallback to direct requests API call
             import requests
+
             url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
+
             headers = {
                 "Authorization": f"Bearer {AIRTABLE_API_KEY}",
                 "Content-Type": "application/json"
             }
-            data = {"fields": record_fields}
-            response = requests.post(url, json=data, headers=headers)
+
+            data = {
+                "fields": {
+                    "Country": country_code.upper(),
+                    "Mode": mode.capitalize(),
+                    "Slide Number": slide_num,
+                    "Image URL": image_url,
+                    "Cloudinary ID": cloudinary_id,
+                    "Capture Date": capture_date,
+                    "Timestamp": datetime.now().isoformat(),
+                }
+            }
+
+            response = requests.post(url, json=data, headers=headers, verify=False)
             response.raise_for_status()
-            return response.json().get('id')
+            result = response.json()
+
+            return result.get('id')
 
     except Exception as e:
         st.error(f"❌ Airtable save failed: {str(e)}")
