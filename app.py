@@ -638,7 +638,7 @@ def main():
                         "fields": {
                             "Country": "TEST",
                             "Date": datetime.now().strftime('%m/%d/%Y'),
-                            "banner type": "PC",
+                            "Banner Type": "PC",
                             "URLs": "CONNECTION_TEST"
                         }
                     }
