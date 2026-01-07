@@ -682,8 +682,11 @@ def main():
             ],
             "MEA": [
                 ("kz", "Kazakhstan (KZ)"), ("tr", "Turkey (TR)"), ("eg_en", "Egypt (EG_EN)"), ("eg_ar", "Egypt (EG_AR)"),
-                ("ma", "Morocco (MA)"), ("sa_en", "Saudi Arabia (SA_EN)"), ("sa", "Saudi Arabia (SA)"), 
+                ("ma", "Morocco (MA)"), ("sa_en", "Saudi Arabia (SA_EN)"), ("sa_ar", "Saudi Arabia (SA_AR)"), 
                 ("za", "South Africa (ZA)")
+            ],
+            "Canada": [
+                ("ca_en", "Canada (CA_EN)"), ("ca_fr", "Canada (CA_FR)")
             ]
         }
         
@@ -693,13 +696,13 @@ def main():
 
         # Build Dropdown Options
         # Options will be: Region Name, All Subsidiaries, or Individual Country Name
-        country_labels = ["Asia", "Europe", "LATAM", "MEA", "All Subsidiaries"]
+        country_labels = ["All Subsidiaries", "Asia", "Europe", "LATAM", "MEA", "Canada"]
         
         # Add individual countries (sorted)
         individual_sorted = sorted(all_subs, key=lambda x: x[1])
         country_labels.extend([label for _, label in individual_sorted])
 
-        selected_option = st.selectbox("Country/Region", options=country_labels, index=4) # Default to All Subsidiaries
+        selected_option = st.selectbox("Country/Region", options=country_labels, index=5) # Default to All Subsidiaries
         mode = st.selectbox("View Mode", options=["desktop", "mobile"])
 
         st.divider()
