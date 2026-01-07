@@ -153,8 +153,8 @@ def save_to_airtable(country_code, mode, slide_num, image_url, cloudinary_id, ca
     if not all([AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME]):
         st.warning("⚠️ Airtable credentials not configured. Please set them in .env file or Streamlit secrets.")
         return None
-
-try:
+        
+    try:
         # 1. Format the Name field: au-hero-banner-pc-gp1
         # Assumes mode is 'PC' or 'Mobile' and gp suffix logic
         formatted_name = f"{country_code.lower()}-hero-banner-{mode.lower()}-gp1"
@@ -192,9 +192,9 @@ try:
             response.raise_for_status()
             return response.json().get('id')
 
-except Exception as e:
-    st.error(f"❌ Airtable save failed: {str(e)}")
-    return None
+    except Exception as e:
+        st.error(f"❌ Airtable save failed: {str(e)}")
+        return None
 
 
 # --- CORE CAPTURE LOGIC (Enhanced with Hero Detection) ---
