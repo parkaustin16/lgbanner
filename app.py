@@ -192,9 +192,9 @@ try:
             response.raise_for_status()
             return response.json().get('id')
 
-    except Exception as e:
-        st.error(f"❌ Airtable save failed: {str(e)}")
-        return None
+except Exception as e:
+    st.error(f"❌ Airtable save failed: {str(e)}")
+    return None
 
 
 # --- CORE CAPTURE LOGIC (Enhanced with Hero Detection) ---
