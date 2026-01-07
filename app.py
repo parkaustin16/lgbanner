@@ -662,10 +662,10 @@ def main():
             ("fr", "France (FR)"), ("de", "Germany (DE)"), ("it", "Italy (IT)"),
             ("es", "Spain (ES)"), ("nl", "Netherlands (NL)"),("cz", "Czech Republic (CZ)"),
             ("se", "Sweden (SE)"), ("pt", "Portugal (PT)"), ("hu", "Hungary (HU)"),
-            ("pl", "Poland (PL)"), ("at", "Austria (AT)"), ("mx", "Mexico (MX)")
+            ("pl", "Poland (PL)"), ("at", "Austria (AT)"), ("mx", "Mexico (MX)"),
             ("br", "Brazil (BR)"), ("ar", "Argentina (AR)"), ("cl", "Chile (CL)"),
             ("co", "Colombia (CO)"), ("pe", "Peru (PE)"), ("pa", "Panama (PA)"),
-            ("jp", "Japan (JP)"), ("hk_en", "Hong Kong (HK_EN)"),("tw", "Taiwan (TW)"),
+            ("jp", "Japan (JP)"), ("hk_en", "Hong Kong (HK_EN)"), ("tw", "Taiwan (TW)"),
             ("in", "India (IN)"), ("sg", "Singapore (SG)"), ("my", "Malaysia (MY)"),
             ("th", "Thailand (TH)"), ("vn", "Vietnam (VN)"), ("ph", "Philippines (PH)"),
             ("id", "Indonesia (ID)"), ("kz", "Kazakhstan (KZ)"), ("kz", "Kazakhstan (KZ)"),
