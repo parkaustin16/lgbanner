@@ -702,7 +702,7 @@ def main():
         individual_sorted = sorted(all_subs, key=lambda x: x[1])
         country_labels.extend([label for _, label in individual_sorted])
 
-        selected_option = st.selectbox("Country/Region", options=country_labels, index=1) # Default to All Subsidiaries
+        selected_option = st.selectbox("Country/Region", options=country_labels, index=0) # Default to All Subsidiaries
         mode = st.selectbox("View Mode", options=["desktop", "mobile"])
 
         st.divider()
