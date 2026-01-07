@@ -672,7 +672,7 @@ def main():
             ("th", "Thailand (TH)"), ("vn", "Vietnam (VN)"), ("ph", "Philippines (PH)"),
             ("id", "Indonesia (ID)"), ("kz", "Kazakhstan (KZ)"), ("tr", "Turkey (TR)"),
             ("eg_en", "Egypt (EG_EN)"), ("eg_ar", "Egypt (EG_AR)"), ("ma", "Morocco (MA)"),
-            ("sa_en", "Saudi Arabia (SA_EN)"), ("sa_ar", "Saudi Arabia (SA_AR)"), ("za", "South Africa (ZA)")       
+            ("sa_en", "Saudi Arabia (SA_EN)"), ("sa_ar", "Saudi Arabia (SA_AR)"), ("za", "South Africa (ZA)")        
             
         ]
 
@@ -693,20 +693,22 @@ def main():
 
         st.divider()
         run_btn = st.button("Start Capture", type="primary", use_container_width=True)
+        run_all_btn = st.button("🚀 Run All Subsidiaries", use_container_width=True)
         st.divider()
         st.subheader("Activity Log")
         log_placeholder = st.empty()
 
+    def add_log(message):
+        msg = f"`{datetime.now().strftime('%H:%M:%S')}` {message}"
+        st.session_state.log_messages.append(msg)
+        log_placeholder.markdown("\n\n".join(st.session_state.log_messages[::-1]))
+
+    # Logic for Single Capture
     if run_btn:
         st.session_state.log_messages = []
         captured_files = []
         cloudinary_urls = []
         url = f"https://www.lg.com/{site}/"
-
-        def add_log(message):
-            msg = f"`{datetime.now().strftime('%H:%M:%S')}` {message}"
-            st.session_state.log_messages.append(msg)
-            log_placeholder.markdown("\n\n".join(st.session_state.log_messages[::-1]))
 
         st.subheader(f"Results: {site.upper()} ({mode})")
         cols = st.columns(3)
@@ -740,6 +742,37 @@ def main():
                                file_name=f"banners_{site}_{mode}_{datetime.now().strftime('%Y%m%d')}.zip",
                                mime="application/zip", use_container_width=True)
             st.success(f"✅ Capture complete! {len(captured_files)} images saved.")
+
+    # Logic for "Run All Subsidiaries"
+    if run_all_btn:
+        st.session_state.log_messages = []
+        add_log(f"🏁 Starting batch run for ALL {len(countries)} subsidiaries in **{mode}** mode...")
+        
+        progress_bar = st.progress(0)
+        
+        for i, (c_code, c_label) in enumerate(countries):
+            c_full_name = c_label.split(" (")[0]
+            url = f"https://www.lg.com/{c_code}/"
+            
+            add_log(f"🌍 Processing **{c_label}**...")
+            cloudinary_urls = []
+            
+            # Run capture for this specific country
+            for result in capture_hero_banners(url, c_code, mode, log_callback=add_log, upload_to_cloud=upload_enabled):
+                _, _, cloudinary_url = result
+                if cloudinary_url:
+                    cloudinary_urls.append(cloudinary_url)
+            
+            # Save to Airtable if enabled
+            if upload_enabled and cloudinary_urls:
+                add_log(f"💾 Saving {c_code.upper()} record to Airtable...")
+                save_to_airtable(c_code, mode, cloudinary_urls, c_full_name)
+            
+            # Update progress
+            progress_bar.progress((i + 1) / len(countries))
+            
+        add_log("✨ Batch processing of all subsidiaries complete!")
+        st.success("✅ All subsidiaries processed successfully.")
 
 
 if __name__ == "__main__":
