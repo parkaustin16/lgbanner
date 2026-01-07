@@ -154,53 +154,43 @@ def save_to_airtable(country_code, mode, slide_num, image_url, cloudinary_id, ca
         st.warning("⚠️ Airtable credentials not configured. Please set them in .env file or Streamlit secrets.")
         return None
 
-    try:
-        # Method 1: Try using pyairtable with SSL fix
+try:
+        # 1. Format the Name field: au-hero-banner-pc-gp1
+        # Assumes mode is 'PC' or 'Mobile' and gp suffix logic
+        formatted_name = f"{country_code.lower()}-hero-banner-{mode.lower()}-gp1"
+        
+        # 2. Join URLs into a single string (separated by newlines or commas)
+        urls_string = "\n".join(image_urls)
+
+        # Record Payload
+        record_fields = {
+            "Name": formatted_name,
+            "Country": country_code.capitalize(), # e.g. Australia
+            "Date": capture_date,
+            "Banner Type": mode.upper(),
+            "URLs": urls_string,
+            "Timestamp": datetime.now().isoformat()
+        }
+
+        # Attempt Save via pyairtable
         try:
             api = Api(AIRTABLE_API_KEY)
             table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
-
-            record = {
-                "Country": country_code.upper(),
-                "Mode": mode.capitalize(),
-                "Slide Number": slide_num,
-                "Image URL": image_url,
-                "Cloudinary ID": cloudinary_id,
-                "Capture Date": capture_date,
-                "Timestamp": datetime.now().isoformat(),
-            }
-
-            created_record = table.create(record)
+            created_record = table.create(record_fields)
             return created_record['id']
-
-        except Exception as pyairtable_error:
-            # Method 2: Fallback to direct requests API call
+            
+        except Exception:
+            # Fallback to direct requests API
             import requests
-
             url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
-
             headers = {
                 "Authorization": f"Bearer {AIRTABLE_API_KEY}",
                 "Content-Type": "application/json"
             }
-
-            data = {
-                "fields": {
-                    "Country": country_code.upper(),
-                    "Mode": mode.capitalize(),
-                    "Slide Number": slide_num,
-                    "Image URL": image_url,
-                    "Cloudinary ID": cloudinary_id,
-                    "Capture Date": capture_date,
-                    "Timestamp": datetime.now().isoformat(),
-                }
-            }
-
-            response = requests.post(url, json=data, headers=headers, verify=False)
+            data = {"fields": record_fields}
+            response = requests.post(url, json=data, headers=headers)
             response.raise_for_status()
-            result = response.json()
-
-            return result.get('id')
+            return response.json().get('id')
 
     except Exception as e:
         st.error(f"❌ Airtable save failed: {str(e)}")
