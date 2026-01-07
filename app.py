@@ -162,7 +162,7 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
         capture_date = datetime.now().strftime('%m/%d/%Y')
         
         # Format the URLs as a single string (newline separated)
-        url_text = "\n".join(urls)
+        url_text = ", ".join(urls)
 
         # Method 1: Try using pyairtable with SSL fix
         try:
