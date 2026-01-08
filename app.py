@@ -208,7 +208,8 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
             return result.get('id')
 
     except Exception as e:
-        st.error(f"❌ Airtable save failed: {str(e)} ({site}): {response.status_code} - {response.text}")
+        add_log(f"{site}): {response.status_code} - {response.text}")
+        st.error(f"❌ Airtable save failed: {str(e)}")
         return None
     
 
