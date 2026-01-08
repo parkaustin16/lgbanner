@@ -160,7 +160,6 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
         mode_suffix = "pc" if mode.lower() == "desktop" else "mobile"
         record_name = f"{country_code.lower()}-hero-banner-{mode_suffix}-gp1"
         capture_date = datetime.now().strftime('%m/%d/%Y')
-        domain = {country_code}
         
         # Format the URLs as a single string (newline separated)
         url_text = ", ".join(urls)
@@ -171,7 +170,7 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
             table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
 
             record = {
-                "domain": domain,
+                "domain": country_code,
                 "country": full_country_name,
                 "period": capture_date,
                 "banner-type": banner_type_label,
@@ -194,7 +193,7 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
 
             data = {
                 "fields": {
-                    "domain": domain,
+                    "domain": country_code,
                     "country": full_country_name,
                     "period": capture_date,
                     "banner-type": banner_type_label,
