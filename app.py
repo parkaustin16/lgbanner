@@ -725,6 +725,11 @@ def main():
     def add_log(message):
         msg = f"`{datetime.now().strftime('%H:%M:%S')}` {message}"
         st.session_state.log_messages.append(msg)
+        
+        # Keep only the last 50 logs to prevent memory/app reset issues
+        if len(st.session_state.log_messages) > 50:
+            st.session_state.log_messages = st.session_state.log_messages[-50:]
+            
         log_placeholder.markdown("\n\n".join(st.session_state.log_messages[::-1]))
 
     # Logic for Capture
@@ -801,6 +806,10 @@ def main():
                 
                 if upload_enabled and cloudinary_urls:
                     save_to_airtable(c_code, mode, cloudinary_urls, c_full_name)
+                
+                # Manual memory cleanup after each country
+                import gc
+                gc.collect()
                 
                 progress_bar.progress((i + 1) / len(capture_queue))
             
