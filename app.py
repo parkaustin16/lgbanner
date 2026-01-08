@@ -170,7 +170,6 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
             table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
 
             record = {
-                "Name1": record_name,
                 "country": full_country_name,
                 "period": capture_date,
                 "banner-type": banner_type_label,
@@ -193,7 +192,6 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
 
             data = {
                 "fields": {
-                    "Name1": record_name,
                     "country": full_country_name,
                     "period": capture_date,
                     "banner-type": banner_type_label,
