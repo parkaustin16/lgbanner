@@ -63,7 +63,7 @@ CLOUDINARY_API_SECRET = st.secrets['CLOUDINARY_HIDDEN_API_SECRET']
 # Airtable Configuration
 AIRTABLE_API_KEY = st.secrets["AIRTABLE_HIDDEN_API_KEY"]
 AIRTABLE_BASE_ID = st.secrets["AIRTABLE_HIDDEN_BASE_ID"]
-AIRTABLE_TABLE_NAME = "Auto Capture"
+AIRTABLE_TABLE_NAME = "capture"
 
 # Configure Cloudinary only if credentials are available
 if all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]):
@@ -171,9 +171,9 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
 
             record = {
                 "Name": record_name,
-                "Country": full_country_name,
-                "Date": capture_date,
-                "Banner Type": banner_type_label,
+                "country": full_country_name,
+                "period": capture_date,
+                "banner-type": banner_type_label,
                 "URLs": url_text
             }
 
@@ -194,9 +194,9 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
             data = {
                 "fields": {
                     "Name": record_name,
-                    "Country": full_country_name,
-                    "Date": capture_date,
-                    "Banner Type": banner_type_label,
+                    "country": full_country_name,
+                    "period": capture_date,
+                    "banner-type": banner_type_label,
                     "URLs": url_text
                 }
             }
@@ -639,9 +639,9 @@ def main():
                     # 2. WRITE TEST (Functional check without the info text)
                     write_data = {
                         "fields": {
-                            "Country": "TEST",
-                            "Date": datetime.now().strftime('%m/%d/%Y'),
-                            "Banner Type": "PC",
+                            "country": "TEST",
+                            "period": datetime.now().strftime('%m/%d/%Y'),
+                            "banner-type": "PC",
                             "URLs": "https://example.com/png"
                         }
                     }
