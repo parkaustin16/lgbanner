@@ -208,10 +208,9 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
             return result.get('id')
 
     except Exception as e:
-        add_log(f"{site}): {response.status_code} - {response.text}")
         st.error(f"❌ Airtable save failed: {str(e)}")
         return None
-    
+
 
 # --- CORE CAPTURE LOGIC (Enhanced with Hero Detection) ---
 
@@ -643,6 +642,7 @@ def main():
                             "country": "Australia",
                             "period": datetime.now().strftime('%m/%d/%Y'),
                             "banner-type": "hero-banner-pc",
+                            "URLs": "https://example.com/png"
                         }
                     }
                     write_response = requests.post(read_url, json=write_data, headers=headers, verify=False)
