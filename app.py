@@ -439,39 +439,6 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
         # USE DPR 2.0 FOR SHARPER CAPTURES
         context = browser.new_context(viewport=size, device_scale_factor=2)
-        context.add_init_script("""
-(() => {
-  const css = `
-    /* LG Spin – HARD DISABLE (server + client) */
-    #lg-spin-root,
-    [id*="spin"],
-    [class*="spin"],
-    canvas[id*="spin"],
-    canvas[class*="spin"],
-    iframe[src*="spin"],
-    iframe[src*="ncms"],
-    iframe[src*="promo"],
-    iframe[src*="event"],
-    [data-lg-spin],
-    [data-spin],
-    [aria-label*="spin"] {
-      display: none !important;
-      visibility: hidden !important;
-      opacity: 0 !important;
-      pointer-events: none !important;
-      width: 0 !important;
-      height: 0 !important;
-      max-width: 0 !important;
-      max-height: 0 !important;
-    }
-  `;
-
-  const style = document.createElement("style");
-  style.setAttribute("data-spin-kill", "true");
-  style.textContent = css;
-  document.documentElement.appendChild(style);
-})();
-""")
         page = context.new_page()
 
         def block_chat_requests(route):
