@@ -215,9 +215,12 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
 # --- CORE CAPTURE LOGIC (Enhanced with Hero Detection) ---
 
 def apply_clean_styles(page_obj):
-    """Comprehensive CSS cleanup with Sharpening and Speed fixes."""
+    """Comprehensive CSS cleanup with Sharpening, Speed fixes, and Dynamic Popup removal."""
     page_obj.evaluate("""
+        // 1. Immediate removal of existing banners
         document.querySelectorAll('.c-notification-banner').forEach(el => el.remove());
+
+        // 2. Global CSS Injection
         const style = document.createElement('style');
         style.innerHTML = `
             /* Hiding popups, chats, and the Spin-to-Win overlay */
@@ -252,13 +255,10 @@ def apply_clean_styles(page_obj):
         `;
         document.head.appendChild(style);
 
+        // 3. Static cleanup for elements already present
         const hideSelectors = [
-            '.c-header', 
-            '.navigation', 
-            '.iw_viewport-wrapper > header', 
-            '.al-quick-btn__quickbtn', 
-            '.al-quick-btn__topbtn',
-            '#lg-spin-root'
+            '.c-header', '.navigation', '.iw_viewport-wrapper > header', 
+            '.al-quick-btn__quickbtn', '.al-quick-btn__topbtn', '#lg-spin-root'
         ];
         hideSelectors.forEach(s => {
             document.querySelectorAll(s).forEach(el => el.style.setProperty('display', 'none', 'important'));
@@ -268,6 +268,22 @@ def apply_clean_styles(page_obj):
         opacitySelectors.forEach(s => {
             document.querySelectorAll(s).forEach(el => el.style.setProperty('opacity', '0', 'important'));
         });
+
+        // 4. Dynamic Watcher: Removes the "Spin to Win" popup if it appears later (e.g., after 6s)
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.id === 'lg-spin-root' || (node.classList && node.classList.contains('lg-spin-root'))) {
+                        node.remove();
+                        // Also restore scrolling if the popup locked it
+                        document.body.style.overflow = 'auto';
+                        document.documentElement.style.overflow = 'auto';
+                    }
+                });
+            });
+        });
+
+        observer.observe(document.body, { childList: true, subtree: true });
 
         // Pause videos immediately to prevent motion blur
         document.querySelectorAll('video').forEach(v => v.pause());
