@@ -220,17 +220,16 @@ def apply_clean_styles(page_obj):
         document.querySelectorAll('.c-notification-banner').forEach(el => el.remove());
         const style = document.createElement('style');
         style.innerHTML = `
+                [id*="lg-spin-"], [class*="lg-spin-"], 
+        #lg-spin-root, .lg-spin-root, .lg-spin-backdrop, .lg-spin-modal,
+        .lg-spin-header, .lg-spin-badge, .lg-spin-wheel-wrap, #lg-spin-canvas,
+        .lg-spin-title, .lg-spin-subtitle, .lg-spin-result, .lg-spin-result *,
+        .lg-spin-btn, .lg-spin-close, .lg-spin-x, [data-lg-spin-close],
             [class*="chat"], [id*="chat"], [class*="proactive"], 
         .alk-container, #genesys-chat, .genesys-messenger,
         .floating-button-portal, #WAButton, .embeddedServiceHelpButton,
         .c-pop-toast__container, .onetrust-pc-dark-filter, #onetrust-consent-sdk,
         .c-membership-popup, 
-        [id*="lg-spin-"], [class*="lg-spin-"], 
-        #lg-spin-root, .lg-spin-root, .lg-spin-backdrop, .lg-spin-modal,
-        .lg-spin-header, .lg-spin-badge, .lg-spin-wheel-wrap, #lg-spin-canvas,
-        .lg-spin-title, .lg-spin-subtitle, .lg-spin-result, .lg-spin-result *,
-        .lg-spin-btn, .lg-spin-close, .lg-spin-x, [data-lg-spin-close]
-            { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; },
         [class*="cloud-shoplive"], [class*="csl-"], [class*="svelte-"], 
         .l-cookie-teaser, .c-cookie-settings, .LiveMiniPreview,
         .c-notification-banner, .c-notification-banner *, .c-notification-banner__wrap,
