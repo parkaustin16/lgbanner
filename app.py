@@ -220,36 +220,7 @@ def apply_clean_styles(page_obj):
         document.querySelectorAll('.c-notification-banner').forEach(el => el.remove());
         const style = document.createElement('style');
         style.innerHTML = `
-                [id*="lg-spin-"], [class*="lg-spin-"], 
-        #lg-spin-root, .lg-spin-root, .lg-spin-backdrop, .lg-spin-modal,
-        .lg-spin-header, .lg-spin-badge, .lg-spin-wheel-wrap, #lg-spin-canvas,
-        .lg-spin-title, .lg-spin-subtitle, .lg-spin-result, .lg-spin-result *,
-        .lg-spin-btn, .lg-spin-close, .lg-spin-x, [data-lg-spin-close],
-        [class*="chat"], [id*="chat"], [class*="proactive"],
-        [class*="cloud-shoplive"], [class*="csl-"], [class*="svelte-"], 
-        .l-cookie-teaser, .c-cookie-settings, .LiveMiniPreview,
-        .c-notification-banner, .c-notification-banner *, .c-notification-banner__wrap,
-        .open-button, .js-video-pause, .js-video-play, [aria-label*="Pausar"], [aria-label*="video"],
-        [style*="z-index: 2147483647"], [style*="z-index:2147483647"],
-        [style*="display: block"], [style*="visibility: visible"], 
-        .is-open, [aria-hidden="false"], [aria-label*="Spin"],
-        canvas#lg-spin-canvas, .lg-spin-root[style]
-            { 
-                display: none !important; 
-                visibility: hidden !important; 
-                opacity: 0 !important; 
-                pointer-events: none !important; 
-                z-index: -999999 !important;
-                position: absolute !important;
-                top: -9999px !important;
-                left: -9999px !important;
-                height: 0px !important;
-                width: 0px !important;
-                max-height: 0px !important;
-                max-width: 0px !important;
-                overflow: hidden !important;
-                transform: scale(0) !important;
-            },
+            [class*="chat"], [id*="chat"], [class*="proactive"], 
         .alk-container, #genesys-chat, .genesys-messenger,
         .floating-button-portal, #WAButton, .embeddedServiceHelpButton,
         .c-pop-toast__container, .onetrust-pc-dark-filter, #onetrust-consent-sdk,
@@ -441,23 +412,7 @@ def find_hero_carousel(page, log_callback=None):
 
     return hero_carousel
 
-def block_spin_to_win(page):
-    """
-    Hard-block LG Spin-to-Win script by filename
-    """
 
-    def route_handler(route):
-        req = route.request
-        url = req.url.lower()
-
-        # 🎯 Exact script block
-        if "spinner10-rtl.js" in url:
-            return route.abort()
-
-        return route.continue_()
-
-    page.route("**/*", route_handler)
-    
 def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, upload_to_cloud=False):
     def log(message):
         if log_callback:
@@ -485,73 +440,40 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
         # USE DPR 2.0 FOR SHARPER CAPTURES
         context = browser.new_context(viewport=size, device_scale_factor=2)
         context.add_init_script("""
-        (() => {
-  Object.defineProperty(window, "__LG_SPIN_SINGLETON__", {
-    value: true,
-    writable: false,
-    configurable: false
-  });
-
-  const nativeSetTimeout = window.setTimeout;
-  const nativeSetInterval = window.setInterval;
-  const nativeRAF = window.requestAnimationFrame;
-
-  function isSpinPayload(fn) {
-    try {
-      const s = fn && fn.toString();
-      return s && (
-        s.includes("lg-spin") ||
-        s.includes("Spin to Win") ||
-        s.includes("SPIN_DURATION_MS") ||
-        s.includes("bootstrapLikePopup")
-      );
-    } catch {
-      return false;
+(() => {
+  const css = `
+    /* LG Spin – HARD DISABLE (server + client) */
+    #lg-spin-root,
+    [id*="spin"],
+    [class*="spin"],
+    canvas[id*="spin"],
+    canvas[class*="spin"],
+    iframe[src*="spin"],
+    iframe[src*="ncms"],
+    iframe[src*="promo"],
+    iframe[src*="event"],
+    [data-lg-spin],
+    [data-spin],
+    [aria-label*="spin"] {
+      display: none !important;
+      visibility: hidden !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+      width: 0 !important;
+      height: 0 !important;
+      max-width: 0 !important;
+      max-height: 0 !important;
     }
-  }
+  `;
 
-  window.setTimeout = function (fn, delay, ...args) {
-    if (isSpinPayload(fn)) return 0;
-    return nativeSetTimeout(fn, delay, ...args);
-  };
-
-  window.setInterval = function (fn, delay, ...args) {
-    if (isSpinPayload(fn)) return 0;
-    return nativeSetInterval(fn, delay, ...args);
-  };
-
-  window.requestAnimationFrame = function (fn) {
-    if (isSpinPayload(fn)) return 0;
-    return nativeRAF(fn);
-  };
-
-  const SPIN_MATCH = /lg-spin|spin-to-win|spin_to_win/i;
-
-  function purge(node) {
-    if (!node || node.nodeType !== 1) return;
-    if (
-      (node.id && SPIN_MATCH.test(node.id)) ||
-      (node.className && SPIN_MATCH.test(node.className))
-    ) {
-      node.remove();
-    }
-  }
-
-  new MutationObserver(muts => {
-    muts.forEach(m =>
-      m.addedNodes.forEach(n => {
-        purge(n);
-        n.querySelectorAll && n.querySelectorAll("*").forEach(purge);
-      })
-    );
-  }).observe(document.documentElement, { childList: true, subtree: true });
+  const style = document.createElement("style");
+  style.setAttribute("data-spin-kill", "true");
+  style.textContent = css;
+  document.documentElement.appendChild(style);
 })();
 """)
-
-        context.route("**/*spin*", lambda r: r.abort()) context.route("**/*ncms*", lambda r: r.abort())
         page = context.new_page()
-        block_spin_to_win(page)
-        
+
         def block_chat_requests(route):
             url_str = route.request.url.lower()
             chat_keywords = ["genesys", "liveperson", "salesforceliveagent", "adobe-privacy", "chatbot",
@@ -562,7 +484,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                 route.continue_()
 
         page.route("**/*", block_chat_requests)
-        
+
         try:
             log(f"🌐 Navigating to {url}...")
             # SPEED FIX: Use domcontentloaded for faster start
