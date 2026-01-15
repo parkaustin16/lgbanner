@@ -228,9 +228,10 @@ def apply_clean_styles(page_obj):
         [class*="cloud-shoplive"], [class*="csl-"], [class*="svelte-"], 
         .l-cookie-teaser, .c-cookie-settings, .LiveMiniPreview,
         .c-notification-banner, .c-notification-banner *, .c-notification-banner__wrap,
-        .open-button, .js-video-pause, .js-video-play, [aria-label*="Pausar"], [aria-label*="video"]
+        .open-button, .js-video-pause, .js-video-play, [aria-label*="Pausar"], [aria-label*="video"],
+        #lg-spin-root, .lg-spin-backdrop, .lg-spin-modal
             { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
-
+            
             /* SPEED: Disable transitions for instant navigation */
             *, *::before, *::after {
                 transition-duration: 0s !important;
