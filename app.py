@@ -456,7 +456,15 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             log(f"🌐 Navigating to {url}...")
             # SPEED FIX: Use domcontentloaded for faster start
             page.goto(url, wait_until="domcontentloaded", timeout=90000)
-
+            page.add_style_tag(content="""
+#lg-spin-root,
+[id*="spin"],
+[class*="spin"],
+canvas,
+iframe {
+  display: none !important;
+}
+""")
             try:
                 accept_btn = page.locator("#onetrust-accept-btn-handler")
                 if accept_btn.is_visible(timeout=5000):
