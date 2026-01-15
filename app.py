@@ -484,8 +484,41 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
         # USE DPR 2.0 FOR SHARPER CAPTURES
         context = browser.new_context(viewport=size, device_scale_factor=2)
-        page = context.new_page()
+        context.add_init_script("""
+(() => {
+  // 1️⃣ Kill the spinner singleton BEFORE it initializes
+  Object.defineProperty(window, "__LG_SPIN_SINGLETON__", {
+    value: true,
+    writable: false,
+    configurable: false
+  });
+
+  // 2️⃣ Prevent DOM injection (safety net)
+  const blockIds = [
+    "lg-spin-root",
+    "lg-spin-canvas",
+    "lg-spin-btn",
+    "lg-spin-result"
+  ];
+
+  const observer = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      for (const node of m.addedNodes) {
+        if (node.nodeType === 1 && blockIds.includes(node.id)) {
+          node.remove();
+        }
+      }
+    }
+  });
+
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true
+  });
+})();
+""")
         context.route("**/*spin*", lambda r: r.abort()) context.route("**/*ncms*", lambda r: r.abort())
+        page = context.new_page()
         block_spin_to_win(page)
         
         def block_chat_requests(route):
