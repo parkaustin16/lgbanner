@@ -215,45 +215,52 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
 # --- CORE CAPTURE LOGIC (Enhanced with Hero Detection) ---
 
 def apply_clean_styles(page_obj):
-    """Comprehensive CSS cleanup with Active Mutation Watcher for LG Spin."""
+    """Extreme cleanup to neutralize LG Spin across all potential injection methods."""
     page_obj.evaluate("""
-        // 1. Singleton Lock (Immediate)
+        // 1. Singleton Lock & Global Flags
         window.__LG_SPIN_SINGLETON__ = true;
+        window.LG_SPIN_DISABLE = true;
 
-        // 2. Active Watcher: Removes the element if it ever reappears
-        if (!window.__LG_CLEANER_OBSERVER__) {
-            const spinSelectors = '#lg-spin-root, .lg-spin-root, #embed-6db47dc8c5, .lg-spin-backdrop, [id*="lg-spin"], [class*="lg-spin"]';
-            
-            const cleanupSpin = () => {
+        // 2. Continuous Force-Hider (Interval)
+        // This catches elements that bypass MutationObservers or re-render via scripts
+        if (!window.__LG_FORCE_HIDDEN_INTERVAL__) {
+            const spinSelectors = [
+                '#lg-spin-root', '.lg-spin-root', '#embed-6db47dc8c5', 
+                '.lg-spin-backdrop', '.lg-spin-modal', '[id*="lg-spin"]', 
+                '[class*="lg-spin"]', '[id*="spinner"]', 'iframe[src*="spinner"]'
+            ].join(',');
+
+            window.__LG_FORCE_HIDDEN_INTERVAL__ = setInterval(() => {
                 document.querySelectorAll(spinSelectors).forEach(el => {
-                    el.remove();
+                    el.style.setProperty('display', 'none', 'important');
+                    el.style.setProperty('visibility', 'hidden', 'important');
+                    el.style.setProperty('opacity', '0', 'important');
+                    // Completely remove if possible
+                    if (el.parentNode) el.parentNode.removeChild(el);
                 });
-            };
-
-            window.__LG_CLEANER_OBSERVER__ = new MutationObserver(() => {
-                cleanupSpin();
-            });
-
-            window.__LG_CLEANER_OBSERVER__.observe(document.body || document.documentElement, {
-                childList: true,
-                subtree: true
-            });
-            cleanupSpin(); // Run once immediately
+                
+                // Hunt for iframes that might be hosting the spinner
+                document.querySelectorAll('iframe').forEach(frame => {
+                    try {
+                        const content = frame.src || '';
+                        if (content.includes('spinner') || content.includes('spin')) {
+                            frame.remove();
+                        }
+                    } catch(e) {}
+                });
+            }, 100);
         }
 
-        // 3. Heavyweight CSS Kill Switch
-        const styleId = 'lg-kill-switch-styles';
+        // 3. Global CSS Shield (Injected into Head)
+        const styleId = 'lg-nuclear-kill-switch';
         if (!document.getElementById(styleId)) {
             const style = document.createElement('style');
             style.id = styleId;
             style.innerHTML = `
-                /* LG SPIN FORCED KILL */
-                #lg-spin-root, 
-                .lg-spin-root, 
-                #embed-6db47dc8c5, 
-                .lg-spin-backdrop,
-                [id*="lg-spin"],
-                [class*="lg-spin"] { 
+                /* TARGET EVERYTHING REMOTELY SPIN-RELATED */
+                #lg-spin-root, .lg-spin-root, #embed-6db47dc8c5, .lg-spin-backdrop, 
+                .lg-spin-modal, [id*="lg-spin"], [class*="lg-spin"], [id*="spinner"],
+                .cmp-embed:has([id*="lg-spin"]) { 
                     display: none !important; 
                     visibility: hidden !important; 
                     opacity: 0 !important; 
@@ -261,10 +268,11 @@ def apply_clean_styles(page_obj):
                     height: 0 !important;
                     width: 0 !important;
                     position: absolute !important;
-                    left: -9999px !important;
-                    z-index: -9999 !important;
+                    top: -9999px !important;
+                    z-index: -99999 !important;
                 }
 
+                /* Standard UI Cleanups */
                 [class*="chat"], [id*="chat"], [class*="proactive"], 
                 .alk-container, #genesys-chat, .genesys-messenger,
                 .floating-button-portal, #WAButton, .embeddedServiceHelpButton,
@@ -282,19 +290,11 @@ def apply_clean_styles(page_obj):
                     transition-delay: 0s !important;
                     animation-delay: 0s !important;
                 }
-
-                .cmp-carousel__item, .c-hero-banner, img {
-                    image-rendering: -webkit-optimize-contrast !important;
-                    image-rendering: crisp-edges !important;
-                    transform: translateZ(0) !important;
-                    backface-visibility: hidden !important;
-                    perspective: 1000 !important;
-                }
             `;
             document.head.appendChild(style);
         }
 
-        // 4. Manual Hide for common LG Navigation/UI elements
+        // 4. Manual immediate hide for common LG nav
         const hideSelectors = ['.c-header', '.navigation', '.iw_viewport-wrapper > header', '.al-quick-btn__quickbtn', '.al-quick-btn__topbtn'];
         hideSelectors.forEach(s => {
             document.querySelectorAll(s).forEach(el => el.style.setProperty('display', 'none', 'important'));
@@ -307,7 +307,6 @@ def apply_clean_styles(page_obj):
 
         document.querySelectorAll('video').forEach(v => v.pause());
     """)
-
 def find_hero_carousel(page, log_callback=None):
     """
     Intelligently identify the FIRST/MAIN hero banner carousel on LG.com pages.
