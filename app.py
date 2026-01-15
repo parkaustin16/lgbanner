@@ -217,33 +217,43 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
 def apply_clean_styles(page_obj):
     """Comprehensive CSS cleanup with Sharpening and Speed fixes."""
     page_obj.evaluate("""
-        // Remove notification banners immediately
-        document.querySelectorAll('.c-notification-banner').forEach(el => el.remove());
-        
-        // Setup persistent removal for late-appearing spin wheel elements
-        const removeSpinWheel = () => {
-            const selectors = ['#lg-spin-root', '.lg-spin-root', '.lg-spin-backdrop', '.lg-spin-modal', '[id*="lg-spin"]'];
-            selectors.forEach(selector => {
-                document.querySelectorAll(selector).forEach(el => el.remove());
+        // 1. Setup a "Nuclear" removal function for the spin wheel
+        const purgeSpinWheel = () => {
+            // Target by ID, Class, and the specific script tag
+            const selectors = [
+                '#lg-spin-root', 
+                '.lg-spin-root', 
+                '.lg-spin-backdrop', 
+                'script[src*="spinner10-rtl.js"]',
+                '.cmp-embed:has(#lg-spin-root)', // Removes the AEM container holding the wheel
+                '.aem-GridColumn:has(#lg-spin-root)'
+            ];
+            
+            selectors.forEach(s => {
+                document.querySelectorAll(s).forEach(el => {
+                    // Remove the element and its parent if it's just a wrapper for the spinner
+                    el.remove();
+                });
             });
         };
 
-        // 1. Initial removal
-        removeSpinWheel();
-
-        // 2. MutationObserver to catch it the moment it is injected
-        const observer = new MutationObserver((mutations) => {
-            mutations.forEach(() => removeSpinWheel());
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
-
-        // 3. Persistent Interval (Heartbeat) to catch late-session triggers
-        if (!window.spinCleanerInterval) {
-            window.spinCleanerInterval = setInterval(removeSpinWheel, 500);
+        // 2. Run immediately and set a heartbeat to catch late injection
+        purgeSpinWheel();
+        if (!window.spinWatch) {
+            window.spinWatch = setInterval(purgeSpinWheel, 250);
         }
 
         const style = document.createElement('style');
         style.innerHTML = `
+            /* Hide the spin wheel via CSS as a backup */
+            #lg-spin-root, .lg-spin-root, .lg-spin-backdrop, .lg-spin-modal {
+                display: none !important;
+                visibility: hidden !important;
+                opacity: 0 !important;
+                pointer-events: none !important;
+                left: -9999px !important; /* Move it off-screen */
+            }
+
             [class*="chat"], [id*="chat"], [class*="proactive"], 
             .alk-container, #genesys-chat, .genesys-messenger,
             .floating-button-portal, #WAButton, .embeddedServiceHelpButton,
@@ -252,8 +262,7 @@ def apply_clean_styles(page_obj):
             [class*="cloud-shoplive"], [class*="csl-"], [class*="svelte-"], 
             .l-cookie-teaser, .c-cookie-settings, .LiveMiniPreview,
             .c-notification-banner, .c-notification-banner *, .c-notification-banner__wrap,
-            .open-button, .js-video-pause, .js-video-play, [aria-label*="Pausar"], [aria-label*="video"],
-            #lg-spin-root, .lg-spin-root, .lg-spin-backdrop, .lg-spin-modal
+            .open-button, .js-video-pause, .js-video-play, [aria-label*="Pausar"], [aria-label*="video"]
             { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
 
             /* SPEED: Disable transitions for instant navigation */
@@ -288,7 +297,6 @@ def apply_clean_styles(page_obj):
         // Pause videos immediately to prevent motion blur
         document.querySelectorAll('video').forEach(v => v.pause());
     """)
-
 
 def find_hero_carousel(page, log_callback=None):
     """
