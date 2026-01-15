@@ -227,15 +227,23 @@ def apply_clean_styles(page_obj):
         .lg-spin-btn, .lg-spin-close, .lg-spin-x, [data-lg-spin-close],
         [class*="chat"], [id*="chat"], [class*="proactive"],
         [style*="z-index: 2147483647"], [style*="z-index:2147483647"],
-        div[id="lg-spin-root"][style*="display: block"],
-        .is-open[style*="visibility: visible"]
+        [style*="display: block"], [style*="visibility: visible"], 
+        .is-open, [aria-hidden="false"], [aria-label*="Spin"],
+        canvas#lg-spin-canvas, .lg-spin-root[style]
             { 
                 display: none !important; 
                 visibility: hidden !important; 
                 opacity: 0 !important; 
                 pointer-events: none !important; 
-                z-index: -9999 !important;
-            }, 
+                z-index: -999999 !important;
+                position: absolute !important;
+                top: -9999px !important;
+                left: -9999px !important;
+                height: 0px !important;
+                width: 0px !important;
+                overflow: hidden !important;
+                transform: scale(0) !important;
+            },
         .alk-container, #genesys-chat, .genesys-messenger,
         .floating-button-portal, #WAButton, .embeddedServiceHelpButton,
         .c-pop-toast__container, .onetrust-pc-dark-filter, #onetrust-consent-sdk,
