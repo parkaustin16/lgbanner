@@ -247,6 +247,30 @@ def apply_clean_styles(page_obj):
                 backface-visibility: hidden !important;
                 perspective: 1000 !important;
             }
+            /* LG Spin Modal Styles */
+            .lg-spin-backdrop {
+                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                background: rgba(0,0,0,0.8); z-index: 9999;
+            }
+            .lg-spin-modal {
+                position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                background: #fff; padding: 30px; border-radius: 20px; z-index: 10000;
+                text-align: center; direction: rtl; font-family: sans-serif; max-width: 450px; width: 90%;
+            }
+            .lg-spin-wheel-wrap { position: relative; margin: 20px auto; width: 300px; height: 300px; }
+            #lg-spin-canvas { width: 100%; height: 100%; border-radius: 50%; border: 8px solid #a50034; }
+            .lg-spin-btn { 
+                background: #a50034; color: white; border: none; padding: 12px 30px; 
+                border-radius: 25px; cursor: pointer; font-weight: bold; margin-top: 15px; 
+            }
+            .lg-spin-badge { background: #f4f4f4; display: inline-block; padding: 5px 15px; border-radius: 15px; }
+            .lg-spin-x { position: absolute; top: 15px; right: 15px; border: none; background: none; font-size: 24px; cursor: pointer; }
+            .lg-spin-result { margin-top: 15px; padding: 15px; background: #f9f9f9; border-radius: 10px; }
+            .lg-spin-pin { 
+                position: absolute; top: -10px; left: 50%; transform: translateX(-50%);
+                width: 0; height: 0; border-left: 15px solid transparent; 
+                border-right: 15px solid transparent; border-top: 30px solid #a50034; z-index: 10;
+            }
         `;
         document.head.appendChild(style);
 
