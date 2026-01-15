@@ -558,10 +558,12 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                     """, i)
 
                     # 2. Hard wait for visual stability (Reduced to 1s because transitions are disabled)
-                    time.sleep(1.0)
+                    time.sleep(0.5)
+                    apply_clean_styles(page)
+                    time.sleep(0.5)
 
                     # 3. Apply styles for clean capture
-                    apply_clean_styles(page)
+                    
 
                     # 4. Detect "Current Slide Signature" to verify uniqueness
                     signature_data = page.evaluate(f"""
