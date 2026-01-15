@@ -225,7 +225,17 @@ def apply_clean_styles(page_obj):
         .lg-spin-header, .lg-spin-badge, .lg-spin-wheel-wrap, #lg-spin-canvas,
         .lg-spin-title, .lg-spin-subtitle, .lg-spin-result, .lg-spin-result *,
         .lg-spin-btn, .lg-spin-close, .lg-spin-x, [data-lg-spin-close],
-            [class*="chat"], [id*="chat"], [class*="proactive"], 
+        [class*="chat"], [id*="chat"], [class*="proactive"],
+        [style*="z-index: 2147483647"], [style*="z-index:2147483647"],
+        div[id="lg-spin-root"][style*="display: block"],
+        .is-open[style*="visibility: visible"]
+            { 
+                display: none !important; 
+                visibility: hidden !important; 
+                opacity: 0 !important; 
+                pointer-events: none !important; 
+                z-index: -9999 !important;
+            }, 
         .alk-container, #genesys-chat, .genesys-messenger,
         .floating-button-portal, #WAButton, .embeddedServiceHelpButton,
         .c-pop-toast__container, .onetrust-pc-dark-filter, #onetrust-consent-sdk,
