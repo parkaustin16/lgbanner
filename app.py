@@ -215,56 +215,86 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
 # --- CORE CAPTURE LOGIC (Enhanced with Hero Detection) ---
 
 def apply_clean_styles(page_obj):
-    """Comprehensive CSS cleanup including LG Spin Kill Switch."""
+    """Comprehensive CSS cleanup with Active Mutation Watcher for LG Spin."""
     page_obj.evaluate("""
-        // Kill the script execution if it hasn't started yet
+        // 1. Singleton Lock (Immediate)
         window.__LG_SPIN_SINGLETON__ = true;
 
-        document.querySelectorAll('.c-notification-banner').forEach(el => el.remove());
-        const style = document.createElement('style');
-        style.innerHTML = `
-            /* LG SPIN KILL SWITCH */
-            #lg-spin-root, 
-            .lg-spin-root, 
-            #embed-6db47dc8c5, 
-            .lg-spin-backdrop,
-            [id*="lg-spin"] { 
-                display: none !important; 
-                visibility: hidden !important; 
-                opacity: 0 !important; 
-                pointer-events: none !important; 
-                height: 0 !important;
-                z-index: -9999 !important;
-            }
+        // 2. Active Watcher: Removes the element if it ever reappears
+        if (!window.__LG_CLEANER_OBSERVER__) {
+            const spinSelectors = '#lg-spin-root, .lg-spin-root, #embed-6db47dc8c5, .lg-spin-backdrop, [id*="lg-spin"], [class*="lg-spin"]';
+            
+            const cleanupSpin = () => {
+                document.querySelectorAll(spinSelectors).forEach(el => {
+                    el.remove();
+                });
+            };
 
-            [class*="chat"], [id*="chat"], [class*="proactive"], 
-            .alk-container, #genesys-chat, .genesys-messenger,
-            .floating-button-portal, #WAButton, .embeddedServiceHelpButton,
-            .c-pop-toast__container, .onetrust-pc-dark-filter, #onetrust-consent-sdk,
-            .c-membership-popup, 
-            [class*="cloud-shoplive"], [class*="csl-"], [class*="svelte-"], 
-            .l-cookie-teaser, .c-cookie-settings, .LiveMiniPreview,
-            .c-notification-banner, .c-notification-banner *, .c-notification-banner__wrap,
-            .open-button, .js-video-pause, .js-video-play, [aria-label*="Pausar"], [aria-label*="video"]
-            { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
+            window.__LG_CLEANER_OBSERVER__ = new MutationObserver(() => {
+                cleanupSpin();
+            });
 
-            *, *::before, *::after {
-                transition-duration: 0s !important;
-                animation-duration: 0s !important;
-                transition-delay: 0s !important;
-                animation-delay: 0s !important;
-            }
+            window.__LG_CLEANER_OBSERVER__.observe(document.body || document.documentElement, {
+                childList: true,
+                subtree: true
+            });
+            cleanupSpin(); // Run once immediately
+        }
 
-            .cmp-carousel__item, .c-hero-banner, img {
-                image-rendering: -webkit-optimize-contrast !important;
-                image-rendering: crisp-edges !important;
-                transform: translateZ(0) !important;
-                backface-visibility: hidden !important;
-                perspective: 1000 !important;
-            }
-        `;
-        document.head.appendChild(style);
+        // 3. Heavyweight CSS Kill Switch
+        const styleId = 'lg-kill-switch-styles';
+        if (!document.getElementById(styleId)) {
+            const style = document.createElement('style');
+            style.id = styleId;
+            style.innerHTML = `
+                /* LG SPIN FORCED KILL */
+                #lg-spin-root, 
+                .lg-spin-root, 
+                #embed-6db47dc8c5, 
+                .lg-spin-backdrop,
+                [id*="lg-spin"],
+                [class*="lg-spin"] { 
+                    display: none !important; 
+                    visibility: hidden !important; 
+                    opacity: 0 !important; 
+                    pointer-events: none !important; 
+                    height: 0 !important;
+                    width: 0 !important;
+                    position: absolute !important;
+                    left: -9999px !important;
+                    z-index: -9999 !important;
+                }
 
+                [class*="chat"], [id*="chat"], [class*="proactive"], 
+                .alk-container, #genesys-chat, .genesys-messenger,
+                .floating-button-portal, #WAButton, .embeddedServiceHelpButton,
+                .c-pop-toast__container, .onetrust-pc-dark-filter, #onetrust-consent-sdk,
+                .c-membership-popup, 
+                [class*="cloud-shoplive"], [class*="csl-"], [class*="svelte-"], 
+                .l-cookie-teaser, .c-cookie-settings, .LiveMiniPreview,
+                .c-notification-banner, .c-notification-banner *, .c-notification-banner__wrap,
+                .open-button, .js-video-pause, .js-video-play, [aria-label*="Pausar"], [aria-label*="video"]
+                { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
+
+                *, *::before, *::after {
+                    transition-duration: 0s !important;
+                    animation-duration: 0s !important;
+                    transition-delay: 0s !important;
+                    animation-delay: 0s !important;
+                }
+
+                .cmp-carousel__item, .c-hero-banner, img {
+                    image-rendering: -webkit-optimize-contrast !important;
+                    image-rendering: crisp-edges !important;
+                    transform: translateZ(0) !important;
+                    backface-visibility: hidden !important;
+                    perspective: 1000 !important;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        // 4. Manual Hide for common LG Navigation/UI elements
         const hideSelectors = ['.c-header', '.navigation', '.iw_viewport-wrapper > header', '.al-quick-btn__quickbtn', '.al-quick-btn__topbtn'];
         hideSelectors.forEach(s => {
             document.querySelectorAll(s).forEach(el => el.style.setProperty('display', 'none', 'important'));
@@ -277,7 +307,6 @@ def apply_clean_styles(page_obj):
 
         document.querySelectorAll('video').forEach(v => v.pause());
     """)
-
 
 def find_hero_carousel(page, log_callback=None):
     """
