@@ -217,40 +217,26 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
 def apply_clean_styles(page_obj):
     """Comprehensive CSS cleanup with Sharpening and Speed fixes."""
     page_obj.evaluate("""
-        // AGGRESSIVE REMOVAL - Run multiple times
-        function removeSpinToWin() {
-            // Remove all spin-related elements
-            document.querySelectorAll('.c-notification-banner, .cmp-embed, [class*="cmp-embed"], #lg-spin-root, [id*="lg-spin"], [class*="lg-spin"], [id*="embed-"]').forEach(el => el.remove());
-        }
-        
-        // Run immediately
-        removeSpinToWin();
-        
-        // Run again after a delay to catch late-loading elements
-        setTimeout(removeSpinToWin, 100);
-        setTimeout(removeSpinToWin, 700);
-        
-        // Monitor for new additions and remove them instantly
-        const observer = new MutationObserver((mutations) => {
-            mutations.forEach((mutation) => {
-                mutation.addedNodes.forEach((node) => {
-                    if (node.nodeType === 1) { // Element node
-                        if (node.id && (node.id.includes('lg-spin') || node.id.includes('embed-'))) {
-                            node.remove();
-                        }
-                        if (node.className && typeof node.className === 'string' && 
-                            (node.className.includes('lg-spin') || node.className.includes('cmp-embed'))) {
-                            node.remove();
-                        }
-                    }
-                });
-            });
+        // AGGRESSIVE REMOVAL
+        document.querySelectorAll('.c-notification-banner, .cmp-embed, [class*="cmp-embed"], #lg-spin-root, [id*="lg-spin"], [class*="lg-spin"], [id*="embed-"]').forEach(el => {
+            if (el.parentNode) {
+                el.parentNode.removeChild(el);
+            }
         });
-        
-        observer.observe(document.body, { childList: true, subtree: true });
         
         const style = document.createElement('style');
         style.innerHTML = `
+            /* NUCLEAR OPTION - Override inline styles */
+            #lg-spin-root,
+            #lg-spin-root *,
+            [id*="lg-spin"],
+            [id*="lg-spin"] *,
+            [class*="lg-spin"],
+            [class*="lg-spin"] *,
+            .cmp-embed,
+            .cmp-embed *,
+            [id*="embed-"],
+            [id*="embed-"] *,
             [class*="chat"], [id*="chat"], [class*="proactive"], 
             .alk-container, #genesys-chat, .genesys-messenger,
             .floating-button-portal, #WAButton, .embeddedServiceHelpButton,
@@ -259,22 +245,18 @@ def apply_clean_styles(page_obj):
             [class*="cloud-shoplive"], [class*="csl-"], [class*="svelte-"], 
             .l-cookie-teaser, .c-cookie-settings, .LiveMiniPreview,
             .c-notification-banner, .c-notification-banner *, .c-notification-banner__wrap,
-            .open-button, .js-video-pause, .js-video-play, [aria-label*="Pausar"], [aria-label*="video"],
-            
-            /* SPIN TO WIN AND EMBEDS - NUCLEAR OPTION */
-            .cmp-embed, .cmp-embed *, [class*="cmp-embed"], [class*="cmp-embed"] *,
-            #lg-spin-root, #lg-spin-root *, [id*="lg-spin"], [id*="lg-spin"] *, 
-            [class*="lg-spin"], [class*="lg-spin"] *,
-            [id*="embed-"], [id*="embed-"] *,
-            div[style*="z-index: 2147483647"]
+            .open-button, .js-video-pause, .js-video-play, [aria-label*="Pausar"], [aria-label*="video"]
             { 
                 display: none !important; 
                 visibility: hidden !important; 
                 opacity: 0 !important; 
                 pointer-events: none !important;
                 position: absolute !important;
-                left: -9999px !important;
-                top: -9999px !important;
+                left: -99999px !important;
+                top: -99999px !important;
+                width: 0 !important;
+                height: 0 !important;
+                z-index: -999999 !important;
             }
             
             /* SPEED: Disable transitions for instant navigation */
@@ -285,7 +267,7 @@ def apply_clean_styles(page_obj):
                 animation-delay: 0s !important;
             }
             
-            /* Sharpness Fixes: Disable smoothing that causes blur during screenshots */
+            /* Sharpness Fixes */
             .cmp-carousel__item, .c-hero-banner, img {
                 image-rendering: -webkit-optimize-contrast !important;
                 image-rendering: crisp-edges !important;
@@ -489,36 +471,22 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
         def block_chat_requests(route):
             url_str = route.request.url.lower()
-            chat_keywords = ["genesys", "liveperson", "salesforceliveagent", "adobe-privacy", "chatbot",
-                             "proactive-chat", "spinner", "spin-to-win", "lg-spin", "spinner-rtl", "spinner10"]
+            chat_keywords = [
+                "genesys", "liveperson", "salesforceliveagent", "adobe-privacy", 
+                "chatbot", "proactive-chat", 
+                # SPIN TO WIN BLOCKING
+                "spinner", "spin-to-win", "lg-spin", 
+                "spinner-rtl.js", "spinner10-rtl.js", "spinner-rtl.css",
+                "/spinner/", "/spin-to-win/",  # Block entire directory
+                "wcms/sa_en/home-page/home-redesign/banners-2026/elements/spinner"  # Exact path blocking
+            ]
+    
             if any(key in url_str for key in chat_keywords):
                 route.abort()
             else:
                 route.continue_()
 
-        page.route("**/*", block_chat_requests)
-
-        # INJECT CONTINUOUS CLEANUP SCRIPT BEFORE NAVIGATION
-        page.add_init_script("""
-            // This runs on every page load and frame
-            (function() {
-                function nukeSpinToWin() {
-                    document.querySelectorAll('.cmp-embed, [class*="cmp-embed"], #lg-spin-root, [id*="lg-spin"], [class*="lg-spin"], [id*="embed-"]').forEach(el => {
-                        el.remove();
-                    });
-                }
-                
-                // Run immediately
-                nukeSpinToWin();
-                
-                // Run continuously every 100ms
-                setInterval(nukeSpinToWin, 100);
-                
-                // Also watch for DOM changes
-                const observer = new MutationObserver(nukeSpinToWin);
-                observer.observe(document.documentElement, { childList: true, subtree: true });
-            })();
-        """)
+                page.route("**/*", block_chat_requests)
 
         try:
             log(f"🌐 Navigating to {url}...")
@@ -555,7 +523,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                 success = False
 
                 # ATTEMPT LOOP: Handles mobile snapping/duplicates
-                for attempt in range(4):
+                for attempt in range(4):  # Increased to 4 attempts for tricky sites
                     log(f"   Capturing slide {slide_num} (Attempt {attempt + 1})...")
 
                     # 1. Force the swiper state & stop autoplay via JS
@@ -578,7 +546,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                         }}
                     """, i)
 
-                    # 2. Hard wait for visual stability
+                    # 2. Hard wait for visual stability (Reduced to 1s because transitions are disabled)
                     time.sleep(1.0)
 
                     # 3. Apply styles for clean capture
@@ -645,13 +613,9 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                         element.scroll_into_view_if_needed()
                         # Shortened wait for settling
                         time.sleep(0.2)
-                        
-                        # ONE MORE MANUAL NUKE RIGHT BEFORE SCREENSHOT
-                        page.evaluate("""
-                            document.querySelectorAll('.cmp-embed, [class*="cmp-embed"], #lg-spin-root, [id*="lg-spin"], [class*="lg-spin"], [id*="embed-"]').forEach(el => el.remove());
-                        """)
 
                         # Use scale='device' for the screenshot to respect our DPR 2.0
+                        # SPEED FIX: Save as JPEG to reduce file size and encoding time
                         element.screenshot(path=filepath, scale="device", type="jpeg", quality=95)
                         captured_signatures.append(current_sig)
                         log(f"✅ Captured: {filename}")
