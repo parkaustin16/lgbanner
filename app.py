@@ -728,7 +728,6 @@ def main():
             all_subs.extend(r_list)
 
         # Build Dropdown Options
-        # Options will be: Region Name, All Subsidiaries, or Individual Country Name
         country_labels = ["All Subsidiaries", "Asia", "Europe", "LATAM", "MEA", "Canada"]
         
         # Add individual countries (sorted)
@@ -786,16 +785,19 @@ def main():
         
         progress_bar = st.progress(0)
         
-        # Single view for results if only 1 country, otherwise just show logs
-        if len(capture_queue) == 1:
-            site, label = capture_queue[0]
+        # Site processing loop
+        for i, (site, label) in enumerate(capture_queue):
+            if st.session_state.stop_requested:
+                add_log("🛑 Capture process stopped by user.")
+                break
+                
             country_full_name = label.split(" (")[0]
             url = f"https://www.lg.com/{site}/"
-            captured_files = []
-            cloudinary_urls = []
             
             st.subheader(f"Results: {site.upper()} ({mode})")
             cols = st.columns(3)
+            captured_files = []
+            cloudinary_urls = []
             
             for idx, result in enumerate(capture_hero_banners(url, site, mode, log_callback=add_log, upload_to_cloud=upload_enabled)):
                 img_path, slide_num, cloudinary_url = result
@@ -804,52 +806,22 @@ def main():
                     cloudinary_urls.append(cloudinary_url)
                     
                 with cols[idx % 3]:
-                    st.image(img_path, caption=f"Slide {num}")
+                    st.image(img_path, caption=f"Slide {slide_num}")
                     if cloudinary_url: st.caption(f"☁️ [View on Cloudinary]({cloudinary_url})")
 
             if upload_enabled and cloudinary_urls:
-                add_log("💾 Saving record to Airtable...")
+                add_log(f"💾 Saving {site.upper()} record to Airtable...")
                 save_to_airtable(site, mode, cloudinary_urls, country_full_name)
             
-            if captured_files:
-                st.divider()
-                zip_buffer = io.BytesIO()
-                with zipfile.ZipFile(zip_buffer, "w") as zf:
-                    for fpath in captured_files: zf.write(fpath, os.path.basename(fpath))
-                st.download_button(label="📥 Download Banners (ZIP)", data=zip_buffer.getvalue(),
-                                   file_name=f"banners_{site}_{mode}_{datetime.now().strftime('%Y%m%d')}.zip",
-                                   mime="application/zip", use_container_width=True)
-                st.success(f"✅ Capture complete! {len(captured_files)} images saved.")
-        else:
-            # Batch process
-            for i, (c_code, c_label) in enumerate(capture_queue):
-                if st.session_state.stop_requested:
-                    add_log("🛑 Capture process stopped by user.")
-                    break
-                    
-                c_full_name = c_label.split(" (")[0]
-                url = f"https://www.lg.com/{c_code}/"
-                
-                add_log(f"🌍 Processing **{c_label}** ({i+1}/{len(capture_queue)})...")
-                cloudinary_urls = []
-                
-                for result in capture_hero_banners(url, c_code, mode, log_callback=add_log, upload_to_cloud=upload_enabled):
-                    _, _, cloudinary_url = result
-                    if cloudinary_url:
-                        cloudinary_urls.append(cloudinary_url)
-                
-                if upload_enabled and cloudinary_urls:
-                    save_to_airtable(c_code, mode, cloudinary_urls, c_full_name)
-                
-                # Manual memory cleanup after each country
-                import gc
-                gc.collect()
-                
-                progress_bar.progress((i + 1) / len(capture_queue))
+            # Manual memory cleanup after each country
+            import gc
+            gc.collect()
             
-            if not st.session_state.stop_requested:
-                add_log("✨ Batch processing complete!")
-                st.success("✅ Selected region/group processed successfully.")
+            progress_bar.progress((i + 1) / len(capture_queue))
+            
+        if not st.session_state.stop_requested:
+            add_log("✨ Processing complete!")
+            st.success("✅ Selected region/group processed successfully.")
 
 
 if __name__ == "__main__":
