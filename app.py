@@ -217,10 +217,37 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
 def apply_clean_styles(page_obj):
     """Comprehensive CSS cleanup with Sharpening and Speed fixes."""
     page_obj.evaluate("""
-        document.querySelectorAll('.c-notification-banner').forEach(el => el.remove());
+        // AGGRESSIVE REMOVAL - Run multiple times
+        function removeSpinToWin() {
+            // Remove all spin-related elements
+            document.querySelectorAll('.c-notification-banner, .cmp-embed, [class*="cmp-embed"], #lg-spin-root, [id*="lg-spin"], [class*="lg-spin"], [id*="embed-"]').forEach(el => el.remove());
+        }
         
-        // REMOVE SPIN TO WIN AND OTHER EMBEDS AT THE PARENT LEVEL
-        document.querySelectorAll('.cmp-embed, [class*="cmp-embed"], #lg-spin-root, [id*="lg-spin"], [class*="lg-spin"]').forEach(el => el.remove());
+        // Run immediately
+        removeSpinToWin();
+        
+        // Run again after a delay to catch late-loading elements
+        setTimeout(removeSpinToWin, 100);
+        setTimeout(removeSpinToWin, 700);
+        
+        // Monitor for new additions and remove them instantly
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeType === 1) { // Element node
+                        if (node.id && (node.id.includes('lg-spin') || node.id.includes('embed-'))) {
+                            node.remove();
+                        }
+                        if (node.className && typeof node.className === 'string' && 
+                            (node.className.includes('lg-spin') || node.className.includes('cmp-embed'))) {
+                            node.remove();
+                        }
+                    }
+                });
+            });
+        });
+        
+        observer.observe(document.body, { childList: true, subtree: true });
         
         const style = document.createElement('style');
         style.innerHTML = `
@@ -234,10 +261,21 @@ def apply_clean_styles(page_obj):
             .c-notification-banner, .c-notification-banner *, .c-notification-banner__wrap,
             .open-button, .js-video-pause, .js-video-play, [aria-label*="Pausar"], [aria-label*="video"],
             
-            /* SPIN TO WIN AND EMBEDS */
-            .cmp-embed, [class*="cmp-embed"], 
-            #lg-spin-root, [id*="lg-spin"], [class*="lg-spin"]
-            { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
+            /* SPIN TO WIN AND EMBEDS - NUCLEAR OPTION */
+            .cmp-embed, .cmp-embed *, [class*="cmp-embed"], [class*="cmp-embed"] *,
+            #lg-spin-root, #lg-spin-root *, [id*="lg-spin"], [id*="lg-spin"] *, 
+            [class*="lg-spin"], [class*="lg-spin"] *,
+            [id*="embed-"], [id*="embed-"] *,
+            div[style*="z-index: 2147483647"]
+            { 
+                display: none !important; 
+                visibility: hidden !important; 
+                opacity: 0 !important; 
+                pointer-events: none !important;
+                position: absolute !important;
+                left: -9999px !important;
+                top: -9999px !important;
+            }
             
             /* SPEED: Disable transitions for instant navigation */
             *, *::before, *::after {
