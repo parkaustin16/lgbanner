@@ -490,7 +490,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
         def block_chat_requests(route):
             url_str = route.request.url.lower()
             chat_keywords = ["genesys", "liveperson", "salesforceliveagent", "adobe-privacy", "chatbot",
-                             "proactive-chat", "spinner", "spin-to-win", "lg-spin"]
+                             "proactive-chat", "spinner", "spin-to-win", "lg-spin"]  # Added spinner keywords
             if any(key in url_str for key in chat_keywords):
                 route.abort()
             else:
@@ -559,7 +559,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                     # 2. Hard wait for visual stability (Reduced to 1s because transitions are disabled)
                     time.sleep(1.0)
 
-                    # 3. Apply styles for clean capture
+                    # 3. Apply styles for clean capture - NOW CALLED EVERY ITERATION
                     apply_clean_styles(page)
 
                     # 4. Detect "Current Slide Signature" to verify uniqueness
@@ -623,6 +623,9 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                         element.scroll_into_view_if_needed()
                         # Shortened wait for settling
                         time.sleep(0.2)
+                        
+                        # ONE MORE CLEANUP RIGHT BEFORE SCREENSHOT
+                        apply_clean_styles(page)
 
                         # Use scale='device' for the screenshot to respect our DPR 2.0
                         # SPEED FIX: Save as JPEG to reduce file size and encoding time
