@@ -215,20 +215,20 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
 # --- CORE CAPTURE LOGIC (Enhanced with Hero Detection) ---
 
 def apply_clean_styles(page_obj):
-    """Comprehensive CSS cleanup with Sharpening, Speed fixes, and Auto-Close Popup logic."""
+    """Comprehensive CSS cleanup with Sharpening and Speed fixes."""
     page_obj.evaluate("""
-        // 1. Injected styles for hiding elements and fixing sharpness
+        document.querySelectorAll('.c-notification-banner').forEach(el => el.remove());
         const style = document.createElement('style');
         style.innerHTML = `
             [class*="chat"], [id*="chat"], [class*="proactive"], 
-            .alk-container, #genesys-chat, .genesys-messenger,
-            .floating-button-portal, #WAButton, .embeddedServiceHelpButton,
-            .c-pop-toast__container, .onetrust-pc-dark-filter, #onetrust-consent-sdk,
-            .c-membership-popup, #lg-spin-root, .lg-spin-root,
-            [class*="cloud-shoplive"], [class*="csl-"], [class*="svelte-"], 
-            .l-cookie-teaser, .c-cookie-settings, .LiveMiniPreview,
-            .c-notification-banner, .c-notification-banner *, .c-notification-banner__wrap,
-            .open-button, .js-video-pause, .js-video-play, [aria-label*="Pausar"], [aria-label*="video"]
+        .alk-container, #genesys-chat, .genesys-messenger,
+        .floating-button-portal, #WAButton, .embeddedServiceHelpButton,
+        .c-pop-toast__container, .onetrust-pc-dark-filter, #onetrust-consent-sdk,
+        .c-membership-popup, 
+        [class*="cloud-shoplive"], [class*="csl-"], [class*="svelte-"], 
+        .l-cookie-teaser, .c-cookie-settings, .LiveMiniPreview,
+        .c-notification-banner, .c-notification-banner *, .c-notification-banner__wrap,
+        .open-button, .js-video-pause, .js-video-play, [aria-label*="Pausar"], [aria-label*="video"]
             { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
 
             /* SPEED: Disable transitions for instant navigation */
@@ -239,7 +239,7 @@ def apply_clean_styles(page_obj):
                 animation-delay: 0s !important;
             }
 
-            /* Sharpness Fixes */
+            /* Sharpness Fixes: Disable smoothing that causes blur during screenshots */
             .cmp-carousel__item, .c-hero-banner, img {
                 image-rendering: -webkit-optimize-contrast !important;
                 image-rendering: crisp-edges !important;
@@ -250,37 +250,6 @@ def apply_clean_styles(page_obj):
         `;
         document.head.appendChild(style);
 
-        // 2. AUTO-CLOSE POPUP LOGIC
-        // Targets Membership popups AND the new Spin to Win popup
-        const closeSelectors = [
-            '.lg-spin-x',
-            '.lg-spin-close',
-            '[data-lg-spin-close]',
-            '.c-membership-popup__close', 
-            '.c-pop-msg__close-btn', 
-            '.c-pop-msg__close',
-            '[class*="popup"] [class*="close"]',
-            '.c-pop-msg .js-pop-close'
-        ];
-
-        function closePopups() {
-            closeSelectors.forEach(selector => {
-                const btns = document.querySelectorAll(selector);
-                btns.forEach(btn => {
-                    if (btn && typeof btn.click === 'function') {
-                        console.log('Auto-closing popup: ' + selector);
-                        btn.click();
-                    }
-                });
-            });
-            // Also remove any dark overlays or specific roots that block interaction
-            document.querySelectorAll('.c-pop-msg--active, .c-pop-msg__dimmed, #lg-spin-root').forEach(el => el.remove());
-        }
-
-        // Run immediately
-        closePopups();
-
-        // 3. UI Cleanup
         const hideSelectors = ['.c-header', '.navigation', '.iw_viewport-wrapper > header', '.al-quick-btn__quickbtn', '.al-quick-btn__topbtn'];
         hideSelectors.forEach(s => {
             document.querySelectorAll(s).forEach(el => el.style.setProperty('display', 'none', 'important'));
@@ -291,7 +260,7 @@ def apply_clean_styles(page_obj):
             document.querySelectorAll(s).forEach(el => el.style.setProperty('opacity', '0', 'important'));
         });
 
-        // Pause videos immediately
+        // Pause videos immediately to prevent motion blur
         document.querySelectorAll('video').forEach(v => v.pause());
     """)
 
@@ -308,7 +277,7 @@ def find_hero_carousel(page, log_callback=None):
 
     log("🔍 Detecting hero carousel...")
 
-    excluded_wrappers = ".c-notification-banner, .l-cookie-teaser, .c-membership-popup, #lg-spin-root"
+    excluded_wrappers = ".c-notification-banner, .l-cookie-teaser, .c-membership-popup"
 
     hero_selectors = [
         "main .cmp-carousel",
@@ -489,28 +458,12 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             page.goto(url, wait_until="domcontentloaded", timeout=90000)
 
             try:
-                # 1. Cookie Acceptance
                 accept_btn = page.locator("#onetrust-accept-btn-handler")
                 if accept_btn.is_visible(timeout=5000):
                     log("🍪 Accepting cookies...")
                     accept_btn.click()
+                    # Shortened wait after cookie acceptance
                     time.sleep(0.5)
-                
-                # 2. AUTOMATIC POPUP CLOSE (Specific to Spin to Win and Membership)
-                popup_close_selectors = [
-                    ".lg-spin-x",
-                    ".lg-spin-close",
-                    "[data-lg-spin-close]",
-                    ".c-membership-popup__close", 
-                    ".c-pop-msg__close-btn", 
-                    ".c-pop-msg__close"
-                ]
-                for selector in popup_close_selectors:
-                    close_btn = page.locator(selector).first
-                    if close_btn.is_visible(timeout=2000):
-                        log(f"✖️ Closing popup using {selector}...")
-                        close_btn.click()
-                        time.sleep(0.3)
             except:
                 pass
 
@@ -560,7 +513,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                     # 2. Hard wait for visual stability (Reduced to 1s because transitions are disabled)
                     time.sleep(1.0)
 
-                    # 3. Apply styles for clean capture (This now includes the auto-close popup JS)
+                    # 3. Apply styles for clean capture
                     apply_clean_styles(page)
 
                     # 4. Detect "Current Slide Signature" to verify uniqueness
@@ -741,6 +694,7 @@ def main():
             all_subs.extend(r_list)
 
         # Build Dropdown Options
+        # Options will be: Region Name, All Subsidiaries, or Individual Country Name
         country_labels = ["All Subsidiaries", "Asia", "Europe", "LATAM", "MEA", "Canada"]
         
         # Add individual countries (sorted)
