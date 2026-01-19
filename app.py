@@ -259,7 +259,58 @@ def apply_clean_styles(page_obj):
         opacitySelectors.forEach(s => {
             document.querySelectorAll(s).forEach(el => el.style.setProperty('opacity', '0', 'important'));
         });
+        Nuclear cleanup specifically targeting the 'spinner10-rtl.js' logic.
+    1. Spoof the singleton lock so the script exits immediately.
+    2. Set session storage to fool the logic.
+    3. Physically remove the root and any parent containers.
+    """
+    # JS Spoofing and Hard Removal
+    page_obj.evaluate("""
+        // 1. Spoof the Singleton Lock used in spinner10-rtl.js
+        window.__LG_SPIN_SINGLETON__ = true;
+        
+        // 2. Fool the session gate
+        try {
+            sessionStorage.setItem("lg_spin_shown_v2", "1");
+            sessionStorage.setItem("lg_spin_shown", "1");
+        } catch(e) {}
 
+        // 3. Remove the DOM elements
+        const nuke = () => {
+            const root = document.getElementById('lg-spin-root');
+            if (root) {
+                // Remove the parent container div that holds the script/style/root
+                const container = root.closest('div');
+                if (container && container.querySelector('script[src*="spinner"]')) {
+                    container.remove();
+                } else {
+                    root.remove();
+                }
+            }
+            // Remove lingering backdrops or modals
+            document.querySelectorAll('.lg-spin-root, .lg-spin-backdrop, .lg-spin-modal, .onetrust-pc-dark-filter').forEach(el => el.remove());
+            document.body.style.overflow = 'auto';
+        };
+
+        nuke();
+        
+        // Continuous observer to prevent late NCMS injection
+        if (!window.nukeObserver) {
+            window.nukeObserver = new MutationObserver(nuke);
+            window.nukeObserver.observe(document.body, { childList: true, subtree: true });
+        }
+    
+
+    # CSS Injection for invisible backup
+    page_obj.add_style_tag(content="""
+        #lg-spin-root, .lg-spin-root, .lg-spin-backdrop, #onetrust-consent-sdk { 
+            display: none !important; 
+            visibility: hidden !important; 
+            opacity: 0 !important; 
+            z-index: -1 !important; 
+        }
+        .c-header, .navigation { display: none !important; }
+    """)
         // Pause videos immediately to prevent motion blur
         document.querySelectorAll('video').forEach(v => v.pause());
     """)
