@@ -215,21 +215,97 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
 # --- CORE CAPTURE LOGIC (Enhanced with Hero Detection) ---
 
 def apply_clean_styles(page_obj):
-    """Comprehensive CSS cleanup with Sharpening and Speed fixes."""
+    """Comprehensive CSS cleanup with Sharpening, Speed fixes, and Nuclear Popup Removal."""
     page_obj.evaluate("""
+        // NUCLEAR OPTION: Remove LG Spin popup and other dynamic popups
+        function nukeLGSpin() {
+            // Target the specific LG spin popup
+            const lgSpin = document.getElementById('lg-spin-root');
+            if (lgSpin) {
+                lgSpin.remove();
+            }
+            
+            // Remove any spin-related elements
+            document.querySelectorAll('[id*="lg-spin"], [class*="lg-spin"]').forEach(el => el.remove());
+            
+            // Remove other common popup patterns
+            document.querySelectorAll('[class*="popup"], [class*="modal"], [id*="popup"], [id*="modal"]').forEach(el => {
+                const style = window.getComputedStyle(el);
+                if (style.position === 'fixed' && style.zIndex > 1000) {
+                    el.remove();
+                }
+            });
+        }
+        
+        // Run immediately
+        nukeLGSpin();
+        
+        // Run again at intervals to catch late injections
+        setTimeout(nukeLGSpin, 500);
+        setTimeout(nukeLGSpin, 1000);
+        setTimeout(nukeLGSpin, 2000);
+        
+        // Set up a mutation observer to kill popups as they appear
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeType === 1) { // Element node
+                        // Check for spin popup
+                        if (node.id === 'lg-spin-root' || 
+                            (node.className && typeof node.className === 'string' && node.className.includes('lg-spin'))) {
+                            node.remove();
+                            return;
+                        }
+                        
+                        // Check for high z-index fixed position elements (likely popups)
+                        const style = window.getComputedStyle(node);
+                        if (style.position === 'fixed' && parseInt(style.zIndex) > 1000000) {
+                            const id = node.id || '';
+                            const className = node.className || '';
+                            if (id.includes('spin') || className.includes('spin') || 
+                                id.includes('popup') || className.includes('popup') ||
+                                id.includes('modal') || className.includes('modal')) {
+                                node.remove();
+                            }
+                        }
+                    }
+                });
+            });
+        });
+        
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+        
+        // Remove notification banners
         document.querySelectorAll('.c-notification-banner').forEach(el => el.remove());
+        
+        // Inject comprehensive blocking styles
         const style = document.createElement('style');
         style.innerHTML = `
+            /* Block all known popup and chat elements */
             [class*="chat"], [id*="chat"], [class*="proactive"], 
-        .alk-container, #genesys-chat, .genesys-messenger,
-        .floating-button-portal, #WAButton, .embeddedServiceHelpButton,
-        .c-pop-toast__container, .onetrust-pc-dark-filter, #onetrust-consent-sdk,
-        .c-membership-popup, 
-        [class*="cloud-shoplive"], [class*="csl-"], [class*="svelte-"], 
-        .l-cookie-teaser, .c-cookie-settings, .LiveMiniPreview,
-        .c-notification-banner, .c-notification-banner *, .c-notification-banner__wrap,
-        .open-button, .js-video-pause, .js-video-play, [aria-label*="Pausar"], [aria-label*="video"]
-            { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
+            .alk-container, #genesys-chat, .genesys-messenger,
+            .floating-button-portal, #WAButton, .embeddedServiceHelpButton,
+            .c-pop-toast__container, .onetrust-pc-dark-filter, #onetrust-consent-sdk,
+            .c-membership-popup, 
+            [class*="cloud-shoplive"], [class*="csl-"], [class*="svelte-"], 
+            .l-cookie-teaser, .c-cookie-settings, .LiveMiniPreview,
+            .c-notification-banner, .c-notification-banner *, .c-notification-banner__wrap,
+            .open-button, .js-video-pause, .js-video-play, 
+            [aria-label*="Pausar"], [aria-label*="video"],
+            #lg-spin-root, [id*="lg-spin"], [class*="lg-spin"],
+            .lg-spin-root, .lg-spin-backdrop, .lg-spin-modal
+            { 
+                display: none !important; 
+                visibility: hidden !important; 
+                opacity: 0 !important; 
+                pointer-events: none !important; 
+                z-index: -9999 !important;
+                position: absolute !important;
+                left: -10000px !important;
+            }
 
             /* SPEED: Disable transitions for instant navigation */
             *, *::before, *::after {
@@ -250,20 +326,34 @@ def apply_clean_styles(page_obj):
         `;
         document.head.appendChild(style);
 
-        const hideSelectors = ['.c-header', '.navigation', '.iw_viewport-wrapper > header', '.al-quick-btn__quickbtn', '.al-quick-btn__topbtn'];
+        // Hide specific UI elements
+        const hideSelectors = [
+            '.c-header', 
+            '.navigation', 
+            '.iw_viewport-wrapper > header', 
+            '.al-quick-btn__quickbtn', 
+            '.al-quick-btn__topbtn'
+        ];
         hideSelectors.forEach(s => {
             document.querySelectorAll(s).forEach(el => el.style.setProperty('display', 'none', 'important'));
         });
 
-        const opacitySelectors = ['.cmp-carousel__indicators', '.cmp-carousel__actions', '.c-carousel-controls'];
+        // Set opacity to 0 for carousel controls
+        const opacitySelectors = [
+            '.cmp-carousel__indicators', 
+            '.cmp-carousel__actions', 
+            '.c-carousel-controls'
+        ];
         opacitySelectors.forEach(s => {
             document.querySelectorAll(s).forEach(el => el.style.setProperty('opacity', '0', 'important'));
         });
 
         // Pause videos immediately to prevent motion blur
         document.querySelectorAll('video').forEach(v => v.pause());
+        
+        // Run cleanup one more time after everything is set up
+        setTimeout(nukeLGSpin, 100);
     """)
-
 
 def find_hero_carousel(page, log_callback=None):
     """
@@ -442,7 +532,15 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
         def block_chat_requests(route):
             url_str = route.request.url.lower()
             chat_keywords = ["genesys", "liveperson", "salesforceliveagent", "adobe-privacy", "chatbot",
-                             "proactive-chat"]
+                             "proactive-chat""lg-spin", 
+        "spin-to-win", 
+        "spin2win",
+        "wheel",
+        "gamification",
+        "privy",
+        "optinmonster",
+        "popup",
+        "modal",]
             if any(key in url_str for key in chat_keywords):
                 route.abort()
             else:
