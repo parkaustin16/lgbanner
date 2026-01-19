@@ -470,13 +470,35 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
         page = context.new_page()
         page.add_init_script("""
-            (() => {
-              const noop = () => 0;
-              window.setTimeout = noop;
-              window.setInterval = noop;
-              window.requestAnimationFrame = noop;
-            })();
-            """)
+(() => {
+  const killSpin = () => {
+    const root = document.getElementById('lg-spin-root');
+    if (!root) return;
+
+    // Make it think it is closed
+    root.classList.remove('is-open');
+    root.setAttribute('aria-hidden', 'true');
+
+    // Remove its ability to re-open
+    Object.defineProperty(root, 'style', {
+      value: {},
+      writable: false
+    });
+
+    // Disable pointer & rendering
+    root.style.display = 'none';
+    root.style.visibility = 'hidden';
+    root.style.pointerEvents = 'none';
+  };
+
+  // Run immediately
+  killSpin();
+
+  // Run again after DOM mutations (NCMS reasserts state)
+  const obs = new MutationObserver(killSpin);
+  obs.observe(document.documentElement, { childList: true, subtree: true });
+})();
+""")
 
         def block_chat_requests(route):
             url_str = route.request.url.lower()
