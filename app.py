@@ -215,7 +215,6 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
 # --- CORE CAPTURE LOGIC (Enhanced with Hero Detection) ---
 
 def apply_clean_styles(page_obj):
-    
     """Comprehensive CSS cleanup with Sharpening and Speed fixes."""
     page_obj.evaluate("""
         document.querySelectorAll('.c-notification-banner').forEach(el => el.remove());
@@ -263,120 +262,6 @@ def apply_clean_styles(page_obj):
 
         // Pause videos immediately to prevent motion blur
         document.querySelectorAll('video').forEach(v => v.pause());
-          ULTRA Nuclear cleanup specifically targeting the 'spinner10-rtl.js' and similar resilient logic.
-    1. Redefines DOM prototypes to block element insertion.
-    2. Spoofs the singleton lock.
-    3. Forces high-frequency polling removal.
-    """
-    page_obj.evaluate("""
-        // 1. Block the script from being able to append the root element at a browser level
-        if (!window.__PROTOTYPE_NUKE__) {
-            const originalAppend = Element.prototype.appendChild;
-            Element.prototype.appendChild = function(element) {
-                if (element && (element.id === 'lg-spin-root' || (element.classList && element.classList.contains('lg-spin-root')))) {
-                    return element; 
-                }
-                return originalAppend.apply(this, arguments);
-            };
-            window.__PROTOTYPE_NUKE__ = true;
-        }
-
-        // 2. Spoof the Singleton Lock and Session Storage
-        window.__LG_SPIN_SINGLETON__ = true;
-        try {
-            sessionStorage.setItem("lg_spin_shown_v2", "1");
-            sessionStorage.setItem("lg_spin_shown", "1");
-            localStorage.setItem("lg_spin_shown_v2", "1");
-        } catch(e) {}
-
-        // 3. The Nuke Function
-        const nuke = () => {
-            const root = document.getElementById('lg-spin-root');
-            if (root) {
-                const container = root.closest('.cmp-embed') || root.closest('div');
-                if (container && (container.querySelector('script') || container.innerHTML.includes('spin'))) {
-                    container.remove();
-                } else {
-                    root.remove();
-                }
-            }
-            
-            // Remove backdrops, modals, and fixed-position overlays
-            const overlays = document.querySelectorAll('.lg-spin-root, .lg-spin-backdrop, .lg-spin-modal, .onetrust-pc-dark-filter, .c-membership-popup');
-            overlays.forEach(el => el.remove());
-            
-            // Force body scroll and clear any 'is-locked' classes often used by LG modals
-            document.body.style.setProperty('overflow', 'auto', 'important');
-            document.documentElement.style.setProperty('overflow', 'auto', 'important');
-            document.body.classList.remove('is-lock', 'is-locked', 'modal-open');
-        };
-
-        nuke();
-        
-        // 4. Mutation Observer + High Frequency Interval (every 100ms)
-        if (!window.nukeObserver) {
-            window.nukeObserver = new MutationObserver(nuke);
-            window.nukeObserver.observe(document.body, { childList: true, subtree: true });
-            setInterval(nuke, 100); 
-        }
-        if (!window.__STORAGE_LOCK_ACTIVE__) {
-            // Function to poison a storage object (sessionStorage or localStorage)
-            const poisonStorage = (storage) => {
-                const originalGet = storage.getItem;
-                const originalSet = storage.setItem;
-
-                // Always return '1' (true/shown) for any key containing 'spin'
-                storage.getItem = function(key) {
-                    if (typeof key === 'string' && key.toLowerCase().includes('spin')) {
-                        return "1";
-                    }
-                    return originalGet.apply(this, arguments);
-                };
-
-                // Prevent the script from ever clearing or changing the 'shown' status
-                storage.setItem = function(key, value) {
-                    if (typeof key === 'string' && key.toLowerCase().includes('spin')) {
-                        return; // Ignore sets
-                    }
-                    return originalSet.apply(this, arguments);
-                };
-            };
-
-            poisonStorage(window.sessionStorage);
-            poisonStorage(window.localStorage);
-
-            // Overwrite document.cookie to inject the 'shown' cookie immediately
-            const expiry = new Date();
-            expiry.setFullYear(expiry.getFullYear() + 1);
-            document.cookie = "lg_spin_shown_v2=1; path=/; expires=" + expiry.toUTCString();
-            document.cookie = "lg_spin_shown=1; path=/; expires=" + expiry.toUTCString();
-
-            window.__STORAGE_LOCK_ACTIVE__ = true;
-        }
-
-        // Standard cleanup to remove existing elements
-        const cleanup = () => {
-            const spinElements = document.querySelectorAll('[id*="spin"], [class*="spin"], .lg-spin-root');
-            spinElements.forEach(el => el.remove());
-            document.body.style.setProperty('overflow', 'auto', 'important');
-        };
-        cleanup();
-    """)
-
-    # CSS Injection for invisible backup
-    page_obj.add_style_tag(content="""
-    
-        #lg-spin-root, .lg-spin-root, .lg-spin-backdrop, .lg-spin-modal, 
-        #onetrust-consent-sdk, .onetrust-pc-dark-filter, .c-membership-popup { 
-            display: none !important; 
-            visibility: hidden !important; 
-            opacity: 0 !important; 
-            z-index: -1 !important; 
-            pointer-events: none !important;
-        }
-        .c-header, .navigation, .al-quick-btn { display: none !important; }
-        .cmp-carousel__item { transition: none !important; transform: none !important; }
-        
     """)
 
 
@@ -551,15 +436,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                 "--disable-gpu"
             ]
         )
-        context.add_init_script(context.add_init_script("""
-            const lock = (storage) => {
-                const get = storage.getItem;
-                storage.getItem = function(k) { return k.includes('spin') ? '1' : get.apply(this, arguments); };
-            };
-            lock(sessionStorage);
-            lock(localStorage);
-            window.__LG_SPIN_SINGLETON__ = true;
-        """))
+
         # USE DPR 2.0 FOR SHARPER CAPTURES
         context = browser.new_context(viewport=size, device_scale_factor=2)
         page = context.new_page()
