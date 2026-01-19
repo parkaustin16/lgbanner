@@ -215,97 +215,34 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
 # --- CORE CAPTURE LOGIC (Enhanced with Hero Detection) ---
 
 def apply_clean_styles(page_obj):
-    """Comprehensive CSS cleanup with Sharpening, Speed fixes, and Nuclear Popup Removal."""
-    page_obj.evaluate("""
-        // NUCLEAR OPTION: Remove LG Spin popup and other dynamic popups
-        function nukeLGSpin() {
-            // Target the specific LG spin popup
-            const lgSpin = document.getElementById('lg-spin-root');
-            if (lgSpin) {
-                lgSpin.remove();
-            }
-            
-            // Remove any spin-related elements
-            document.querySelectorAll('[id*="lg-spin"], [class*="lg-spin"]').forEach(el => el.remove());
-            
-            // Remove other common popup patterns
-            document.querySelectorAll('[class*="popup"], [class*="modal"], [id*="popup"], [id*="modal"]').forEach(el => {
-                const style = window.getComputedStyle(el);
-                if (style.position === 'fixed' && style.zIndex > 1000) {
-                    el.remove();
-                }
-            });
+    """Comprehensive CSS cleanup with Sharpening and Speed fixes."""
+    page_obj.add_style_tag(content="""
+        #lg-spin-root,
+        #lg-spin-canvas,
+        iframe[src*="spin"],
+        iframe[src*="ncms"],
+        canvas[id*="spin"],
+        canvas[class*="spin"] {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
         }
-        
-        // Run immediately
-        nukeLGSpin();
-        
-        // Run again at intervals to catch late injections
-        setTimeout(nukeLGSpin, 500);
-        setTimeout(nukeLGSpin, 1000);
-        setTimeout(nukeLGSpin, 2000);
-        
-        // Set up a mutation observer to kill popups as they appear
-        const observer = new MutationObserver((mutations) => {
-            mutations.forEach((mutation) => {
-                mutation.addedNodes.forEach((node) => {
-                    if (node.nodeType === 1) { // Element node
-                        // Check for spin popup
-                        if (node.id === 'lg-spin-root' || 
-                            (node.className && typeof node.className === 'string' && node.className.includes('lg-spin'))) {
-                            node.remove();
-                            return;
-                        }
-                        
-                        // Check for high z-index fixed position elements (likely popups)
-                        const style = window.getComputedStyle(node);
-                        if (style.position === 'fixed' && parseInt(style.zIndex) > 1000000) {
-                            const id = node.id || '';
-                            const className = node.className || '';
-                            if (id.includes('spin') || className.includes('spin') || 
-                                id.includes('popup') || className.includes('popup') ||
-                                id.includes('modal') || className.includes('modal')) {
-                                node.remove();
-                            }
-                        }
-                    }
-                });
-            });
-        });
-        
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true
-        });
-        
-        // Remove notification banners
+    """)
+    page_obj.evaluate("""
         document.querySelectorAll('.c-notification-banner').forEach(el => el.remove());
-        
-        // Inject comprehensive blocking styles
         const style = document.createElement('style');
         style.innerHTML = `
-            /* Block all known popup and chat elements */
             [class*="chat"], [id*="chat"], [class*="proactive"], 
-            .alk-container, #genesys-chat, .genesys-messenger,
-            .floating-button-portal, #WAButton, .embeddedServiceHelpButton,
-            .c-pop-toast__container, .onetrust-pc-dark-filter, #onetrust-consent-sdk,
-            .c-membership-popup, 
-            [class*="cloud-shoplive"], [class*="csl-"], [class*="svelte-"], 
-            .l-cookie-teaser, .c-cookie-settings, .LiveMiniPreview,
-            .c-notification-banner, .c-notification-banner *, .c-notification-banner__wrap,
-            .open-button, .js-video-pause, .js-video-play, 
-            [aria-label*="Pausar"], [aria-label*="video"],
-            #lg-spin-root, [id*="lg-spin"], [class*="lg-spin"],
-            .lg-spin-root, .lg-spin-backdrop, .lg-spin-modal
-            { 
-                display: none !important; 
-                visibility: hidden !important; 
-                opacity: 0 !important; 
-                pointer-events: none !important; 
-                z-index: -9999 !important;
-                position: absolute !important;
-                left: -10000px !important;
-            }
+        .alk-container, #genesys-chat, .genesys-messenger,
+        .floating-button-portal, #WAButton, .embeddedServiceHelpButton,
+        .c-pop-toast__container, .onetrust-pc-dark-filter, #onetrust-consent-sdk,
+        .c-membership-popup, 
+        [class*="cloud-shoplive"], [class*="csl-"], [class*="svelte-"], 
+        .l-cookie-teaser, .c-cookie-settings, .LiveMiniPreview,
+        .c-notification-banner, .c-notification-banner *, .c-notification-banner__wrap,
+        .open-button, .js-video-pause, .js-video-play, [aria-label*="Pausar"], [aria-label*="video"]
+            { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
 
             /* SPEED: Disable transitions for instant navigation */
             *, *::before, *::after {
@@ -326,34 +263,20 @@ def apply_clean_styles(page_obj):
         `;
         document.head.appendChild(style);
 
-        // Hide specific UI elements
-        const hideSelectors = [
-            '.c-header', 
-            '.navigation', 
-            '.iw_viewport-wrapper > header', 
-            '.al-quick-btn__quickbtn', 
-            '.al-quick-btn__topbtn'
-        ];
+        const hideSelectors = ['.c-header', '.navigation', '.iw_viewport-wrapper > header', '.al-quick-btn__quickbtn', '.al-quick-btn__topbtn'];
         hideSelectors.forEach(s => {
             document.querySelectorAll(s).forEach(el => el.style.setProperty('display', 'none', 'important'));
         });
 
-        // Set opacity to 0 for carousel controls
-        const opacitySelectors = [
-            '.cmp-carousel__indicators', 
-            '.cmp-carousel__actions', 
-            '.c-carousel-controls'
-        ];
+        const opacitySelectors = ['.cmp-carousel__indicators', '.cmp-carousel__actions', '.c-carousel-controls'];
         opacitySelectors.forEach(s => {
             document.querySelectorAll(s).forEach(el => el.style.setProperty('opacity', '0', 'important'));
         });
 
         // Pause videos immediately to prevent motion blur
         document.querySelectorAll('video').forEach(v => v.pause());
-        
-        // Run cleanup one more time after everything is set up
-        setTimeout(nukeLGSpin, 100);
     """)
+
 
 def find_hero_carousel(page, log_callback=None):
     """
@@ -508,6 +431,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
         if log_callback:
             log_callback(message)
 
+    # Resolution Boost: We set a high device_pixel_ratio to avoid blurriness
     size: ViewportSize = {'width': 1920, 'height': 720} if mode == 'desktop' else {'width': 360, 'height': 480}
 
     session_folder_name = f"{country_code}_{mode}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -526,21 +450,14 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             ]
         )
 
+        # USE DPR 2.0 FOR SHARPER CAPTURES
         context = browser.new_context(viewport=size, device_scale_factor=2)
         page = context.new_page()
 
         def block_chat_requests(route):
             url_str = route.request.url.lower()
             chat_keywords = ["genesys", "liveperson", "salesforceliveagent", "adobe-privacy", "chatbot",
-                             "proactive-chat""lg-spin", 
-        "spin-to-win", 
-        "spin2win",
-        "wheel",
-        "gamification",
-        "privy",
-        "optinmonster",
-        "popup",
-        "modal",]
+                             "proactive-chat"]
             if any(key in url_str for key in chat_keywords):
                 route.abort()
             else:
@@ -548,36 +465,9 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
         page.route("**/*", block_chat_requests)
 
-        # DISABLE TIMERS BEFORE PAGE LOADS
-        page.add_init_script("""
-            // Override setTimeout and setInterval to prevent the 6-second modal trigger
-            (function() {
-                const originalSetTimeout = window.setTimeout;
-                const originalSetInterval = window.setInterval;
-                
-                window.setTimeout = function(fn, delay, ...args) {
-                    // Block any timer that might trigger the spin-to-win modal
-                    const fnString = fn.toString().toLowerCase();
-                    if (fnString.includes('lg-spin') || fnString.includes('spin') || delay >= 5000) {
-                        console.log('Blocked setTimeout for spin-to-win modal');
-                        return -1; // Return fake timer ID
-                    }
-                    return originalSetTimeout.call(this, fn, delay, ...args);
-                };
-                
-                window.setInterval = function(fn, delay, ...args) {
-                    const fnString = fn.toString().toLowerCase();
-                    if (fnString.includes('lg-spin') || fnString.includes('spin')) {
-                        console.log('Blocked setInterval for spin-to-win modal');
-                        return -1;
-                    }
-                    return originalSetInterval.call(this, fn, delay, ...args);
-                };
-            })();
-        """)
-
         try:
             log(f"🌐 Navigating to {url}...")
+            # SPEED FIX: Use domcontentloaded for faster start
             page.goto(url, wait_until="domcontentloaded", timeout=90000)
 
             try:
@@ -585,6 +475,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                 if accept_btn.is_visible(timeout=5000):
                     log("🍪 Accepting cookies...")
                     accept_btn.click()
+                    # Shortened wait after cookie acceptance
                     time.sleep(0.5)
             except:
                 pass
@@ -601,42 +492,24 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             num_slides = len(indicators)
             log(f"📸 Found {num_slides} indicators in carousel.")
 
+            # TRACKER: To prevent capturing the same banner twice
             captured_signatures = []
 
             for i in range(num_slides):
                 slide_num = i + 1
                 success = False
 
-                for attempt in range(4):
+                # ATTEMPT LOOP: Handles mobile snapping/duplicates
+                for attempt in range(4):  # Increased to 4 attempts for tricky sites
                     log(f"   Capturing slide {slide_num} (Attempt {attempt + 1})...")
 
-                    # PROACTIVELY CLOSE MODAL IF IT APPEARED
-                    try:
-                        close_selectors = [
-                            '[data-lg-spin-close]',
-                            '.lg-spin-x',
-                            '.lg-spin-close',
-                            '#lg-spin-root .lg-spin-modal button[type="button"]'
-                        ]
-                        
-                        for selector in close_selectors:
-                            try:
-                                close_btn = page.locator(selector).first
-                                if close_btn.is_visible(timeout=500):
-                                    log("   🎯 Closing Spin to Win modal...")
-                                    close_btn.click()
-                                    time.sleep(0.3)
-                                    break
-                            except:
-                                continue
-                    except Exception as e:
-                        pass
-
+                    # 1. Force the swiper state & stop autoplay via JS
                     page.evaluate(f"""
                         (idx) => {{
                             const car = document.querySelector('.cmp-carousel');
                             if (car && car.swiper) {{
                                 car.swiper.autoplay.stop();
+                                // Force zero speed for instant jump to avoid animation blur
                                 car.swiper.params.speed = 0;
                                 if (typeof car.swiper.slideToLoop === 'function') {{
                                     car.swiper.slideToLoop(idx);
@@ -650,9 +523,13 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                         }}
                     """, i)
 
+                    # 2. Hard wait for visual stability (Reduced to 1s because transitions are disabled)
                     time.sleep(1.0)
+
+                    # 3. Apply styles for clean capture
                     apply_clean_styles(page)
 
+                    # 4. Detect "Current Slide Signature" to verify uniqueness
                     signature_data = page.evaluate(f"""
                         (targetIdx) => {{
                             const active = document.querySelector(`.swiper-slide-active[data-swiper-slide-index="${{targetIdx}}"]`) 
@@ -663,6 +540,8 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                             const img = active.querySelector('img');
                             const text = active.innerText.trim().substring(0, 80);
                             const currentIdx = active.getAttribute('data-swiper-slide-index');
+
+                            // FORCE A REFLOW to fix sub-pixel blur before return
                             active.offsetHeight; 
 
                             return {{
@@ -685,12 +564,14 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                         time.sleep(0.5)
                         continue
 
+                    # 5. Capture Logic
                     active_slide_selector = f".cmp-carousel__item.swiper-slide-active[data-swiper-slide-index='{i}']"
                     try:
                         page.wait_for_selector(active_slide_selector, timeout=2000)
                     except:
                         active_slide_selector = ".cmp-carousel__item.swiper-slide-active"
 
+                    # SPEED FIX: Use JPEG instead of PNG for faster processing
                     filename = f"{country_code}_{mode}_hero_{slide_num}.jpg"
                     filepath = os.path.join(session_path, filename)
 
@@ -707,17 +588,22 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
                     if element:
                         element.scroll_into_view_if_needed()
+                        # Shortened wait for settling
                         time.sleep(0.2)
 
+                        # Use scale='device' for the screenshot to respect our DPR 2.0
+                        # SPEED FIX: Save as JPEG to reduce file size and encoding time
                         element.screenshot(path=filepath, scale="device", type="jpeg", quality=95)
                         captured_signatures.append(current_sig)
                         log(f"✅ Captured: {filename}")
 
                         cloudinary_url = None
+                        cloudinary_id = None
 
                         if upload_to_cloud:
                             log(f"☁️ Uploading to Cloud...")
-                            cloudinary_url, _ = upload_to_cloudinary(filepath, country_code, mode, slide_num)
+                            cloudinary_url, cloudinary_id = upload_to_cloudinary(filepath, country_code, mode,
+                                                                                 slide_num)
 
                         yield filepath, slide_num, cloudinary_url
                         success = True
@@ -731,6 +617,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
         finally:
             log("🔒 Closing browser.")
             browser.close()
+
 
 # --- STREAMLIT UI ---
 
