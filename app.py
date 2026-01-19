@@ -216,19 +216,6 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
 
 def apply_clean_styles(page_obj):
     """Comprehensive CSS cleanup with Sharpening and Speed fixes."""
-    page_obj.add_style_tag(content="""
-        #lg-spin-root,
-        #lg-spin-canvas,
-        iframe[src*="spin"],
-        iframe[src*="ncms"],
-        canvas[id*="spin"],
-        canvas[class*="spin"] {
-            display: none !important;
-            visibility: hidden !important;
-            opacity: 0 !important;
-            pointer-events: none !important;
-        }
-    """)
     page_obj.evaluate("""
         document.querySelectorAll('.c-notification-banner').forEach(el => el.remove());
         const style = document.createElement('style');
@@ -452,14 +439,8 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
         # USE DPR 2.0 FOR SHARPER CAPTURES
         context = browser.new_context(viewport=size, device_scale_factor=2)
-        def block_spin(route):
-    route.fulfill(
-        status=200,
-        content_type="application/javascript",
-        body=""  # empty script
-    )
-
-        context.route("**/spinner10-rtl.js", block_spin)
+        context.add_init_script("window.__LG_SPIN_SINGLETON__ = true; sessionStorage.setItem('lg_spin_shown_v2', '1');")
+        page = context.new_page()
 
         def block_chat_requests(route):
             url_str = route.request.url.lower()
@@ -471,14 +452,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                 route.continue_()
 
         page.route("**/*", block_chat_requests)
-def log_requests(route, request):
-    url = request.url.lower()
-    if "spin" in url or "lg" in url or "promo" in url:
-        log(f" JS REQUEST:", request.url")
-    route.continue_()
 
-context.route("**/*", log_requests)
-page = context.new_page()
         try:
             log(f"🌐 Navigating to {url}...")
             # SPEED FIX: Use domcontentloaded for faster start
@@ -564,11 +538,7 @@ page = context.new_page()
                             }};
                         }}
                     """, i)
-html = page.content()
-log(f"INLINE SPIN FOUND:", "lg-spin-root" in html)
-log(f"INLINE SINGLETON FOUND:", "__LG_SPIN_SINGLETON__" in html)
-for f in page.frames:
-    print("FRAME:", f.url)
+
                     current_sig = signature_data['sig']
                     is_correct_index = signature_data['match']
 
