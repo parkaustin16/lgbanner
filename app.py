@@ -280,6 +280,7 @@ def find_hero_carousel(page, log_callback=None):
     excluded_wrappers = ".c-notification-banner, .l-cookie-teaser, .c-membership-popup"
 
     hero_selectors = [
+        ".cmp-carousel"
         "main .cmp-carousel",
         ".main-content .cmp-carousel",
         ".hero-section .cmp-carousel",
@@ -467,7 +468,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             except:
                 pass
 
-            page.wait_for_selector("main .cmp-carousel, .main .cmp-carousel, #contents .cmp-carousel", timeout=30000)
+            page.wait_for_selector(".cmp-carousel", "main .cmp-carousel, .main .cmp-carousel, #contents .cmp-carousel", timeout=30000)
 
             hero_carousel = find_hero_carousel(page, log_callback)
 
