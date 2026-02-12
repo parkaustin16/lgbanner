@@ -468,7 +468,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             except:
                 pass
 
-            page.wait_for_selector(".cmp-carousel", "main .cmp-carousel, .main .cmp-carousel, #contents .cmp-carousel", timeout=30000)
+            page.wait_for_selector(".cmp-carousel, main .cmp-carousel, .main .cmp-carousel, #contents .cmp-carousel", timeout=30000)
 
             hero_carousel = find_hero_carousel(page, log_callback)
 
