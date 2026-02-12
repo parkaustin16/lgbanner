@@ -414,6 +414,9 @@ def find_hero_carousel(page, log_callback=None):
 
 
 def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, upload_to_cloud=False):
+    # --- FIX: IMPORT RANDOM HERE ---
+    import random
+    
     def log(message):
         if log_callback:
             log_callback(message)
@@ -514,7 +517,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             time.sleep(random.uniform(1.0, 2.0)) 
 
             # Check if we got blocked
-            if "Access Denied" in page.title() or response.status == 403:
+            if "Access Denied" in page.title() or (response and response.status == 403):
                 log("⛔ BLOCKED. Trying one last desperate refresh...")
                 time.sleep(2)
                 page.reload(wait_until="domcontentloaded")
@@ -601,6 +604,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             log(f"❌ Error: {str(e)}")
         finally:
             browser.close()
+
 
 # --- STREAMLIT UI ---
 
