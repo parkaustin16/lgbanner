@@ -418,220 +418,135 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
         if log_callback:
             log_callback(message)
 
-    # Resolution Boost: We set a high device_pixel_ratio to avoid blurriness
-    size: ViewportSize = {'width': 1920, 'height': 720} if mode == 'desktop' else {'width': 360, 'height': 480}
-
+    size = {'width': 1920, 'height': 720} if mode == 'desktop' else {'width': 360, 'height': 640}
     session_folder_name = f"{country_code}_{mode}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     session_path = os.path.join(UPLOAD_FOLDER, session_folder_name)
     os.makedirs(session_path, exist_ok=True)
 
     with sync_playwright() as p:
-        log("🚀 Launching browser (Minimal Evasion Mode)...")
-        
-        # --- EVASION CHANGE 1: STEALTH ARGS ---
+        log("🚀 Launching browser...")
         browser = p.chromium.launch(
             headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--disable-blink-features=AutomationControlled", # Critical: Hides bot flag
-            ]
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--disable-gpu"]
         )
-
-        # --- EVASION CHANGE 2: REAL USER AGENT ---
+        
+        # Real User Agent is required
         user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
-
-        # USE DPR 2.0 FOR SHARPER CAPTURES
-        context = browser.new_context(
-            viewport=size, 
-            device_scale_factor=2,
-            user_agent=user_agent
-        )
         
-        # --- EVASION CHANGE 3: MASK WEBDRIVER PROPERTY ---
-        context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        
+        context = browser.new_context(viewport=size, device_scale_factor=2, user_agent=user_agent)
         page = context.new_page()
-
-        def block_chat_requests(route):
-            url_str = route.request.url.lower()
-            chat_keywords = ["genesys", "liveperson", "salesforceliveagent", "adobe-privacy", "chatbot",
-                             "proactive-chat"]
-            if any(key in url_str for key in chat_keywords):
-                route.abort()
-            else:
-                route.continue_()
-
-        page.route("**/*", block_chat_requests)
 
         try:
             log(f"🌐 Navigating to {url}...")
-            # SPEED FIX: Use domcontentloaded for faster start
-            page.goto(url, wait_until="domcontentloaded", timeout=90000)
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
             try:
-                accept_btn = page.locator("#onetrust-accept-btn-handler")
-                if accept_btn.is_visible(timeout=5000):
-                    log("🍪 Accepting cookies...")
-                    accept_btn.click()
-                    # Shortened wait after cookie acceptance
-                    time.sleep(0.5)
-            except:
-                pass
+                if page.locator("#onetrust-accept-btn-handler").is_visible():
+                    page.locator("#onetrust-accept-btn-handler").click()
+                    time.sleep(1)
+            except: pass
 
-            # --- SELECTOR FIX: Use specific hero carousel selector ---
-            # Your old selector (main .cmp-carousel) failed on the new site structure
-            hero_selector = ".cmp-carousel:has(.c-hero-banner)"
+            # --- PRECISE SELECTOR BASED ON YOUR HTML SNIPPET ---
+            # 1. Target by unique style attribute seen in your HTML: style="--heroTimer:5s"
+            # 2. Or target by class structure containing hero banner
+            hero_selector = ".cmp-carousel[style*='heroTimer']" 
             
+            # Fallback if style isn't stable: Look for the carousel containing c-hero-banner
+            fallback_selector = ".cmp-carousel:has(.c-hero-banner)"
+
             log("🔍 Waiting for Hero Carousel...")
             try:
-                page.wait_for_selector(hero_selector, state="attached", timeout=30000)
-                hero_carousel = page.locator(hero_selector).first
-                # Use element handle for backward compatibility with your logic
-                hero_carousel_handle = hero_carousel.element_handle()
+                # Try the precise one first
+                try:
+                    page.wait_for_selector(hero_selector, state="attached", timeout=10000)
+                    used_selector = hero_selector
+                except:
+                    page.wait_for_selector(fallback_selector, state="attached", timeout=10000)
+                    used_selector = fallback_selector
                 
-                if not hero_carousel_handle:
-                    # Fallback to finding function logic if direct select fails
-                     hero_carousel_handle = find_hero_carousel(page, log_callback)
-            except:
-                # Fallback to your original finder logic if specific selector fails
-                hero_carousel_handle = find_hero_carousel(page, log_callback)
-
-            if not hero_carousel_handle:
-                log("❌ Could not identify hero carousel")
+                hero_carousel = page.locator(used_selector).first
+                hero_carousel.scroll_into_view_if_needed()
+                log(f"✅ Found Hero Carousel using: {used_selector}")
+                
+            except Exception as e:
+                log(f"❌ Hero carousel not found: {e}")
+                page.screenshot(path=os.path.join(session_path, "debug_failed_find.jpg"))
                 return
 
-            indicators = list(hero_carousel_handle.query_selector_all(".cmp-carousel__indicator"))
-            num_slides = len(indicators)
-            log(f"📸 Found {num_slides} indicators in carousel.")
+            # Find indicators (Your HTML shows they are in .c-carousel-controls__pagination)
+            # We look for the bullets specifically
+            indicators_locator = hero_carousel.locator(".cmp-carousel__indicator.c-carousel-controls__bullet")
+            
+            # Wait for indicators to render
+            try:
+                indicators_locator.first.wait_for(state="attached", timeout=5000)
+            except:
+                log("⚠️ Indicators not found immediately, checking count...")
 
-            # TRACKER: To prevent capturing the same banner twice
-            captured_signatures = []
+            num_slides = indicators_locator.count()
+            log(f"📸 Found {num_slides} slides")
+            
+            if num_slides == 0:
+                # Debug if 0 slides found
+                log("❌ Zero slides found. Saving debug HTML.")
+                with open(os.path.join(session_path, "debug.html"), "w", encoding="utf-8") as f:
+                    f.write(page.content())
+                return
+
+            captured_sigs = []
 
             for i in range(num_slides):
                 slide_num = i + 1
                 success = False
-
-                # ATTEMPT LOOP: Handles mobile snapping/duplicates
-                for attempt in range(4):  # Increased to 4 attempts for tricky sites
-                    log(f"   Capturing slide {slide_num} (Attempt {attempt + 1})...")
-
-                    # 1. Force the swiper state & stop autoplay via JS
-                    # UPDATED JS: Uses the more robust selector inside the browser context too
-                    page.evaluate(f"""
-                        (idx) => {{
-                            // Try specific hero carousel first, fall back to generic
-                            const car = document.querySelector('.cmp-carousel:has(.c-hero-banner)') || document.querySelector('.cmp-carousel');
-                            if (car && car.swiper) {{
-                                car.swiper.autoplay.stop();
-                                // Force zero speed for instant jump to avoid animation blur
-                                car.swiper.params.speed = 0;
-                                if (typeof car.swiper.slideToLoop === 'function') {{
-                                    car.swiper.slideToLoop(idx);
-                                }} else {{
-                                    car.swiper.slideTo(idx);
-                                }}
-                            }} else {{
-                                const inds = car.querySelectorAll('.cmp-carousel__indicator');
-                                if (inds[idx]) inds[idx].click();
-                            }}
-                        }}
-                    """, i)
-
-                    # 2. Hard wait for visual stability (Reduced to 1s because transitions are disabled)
-                    time.sleep(1.0)
-
-                    # 3. Apply styles for clean capture
-                    apply_clean_styles(page)
-
-                    # 4. Detect "Current Slide Signature" to verify uniqueness
-                    signature_data = page.evaluate(f"""
-                        (targetIdx) => {{
-                            const parent = document.querySelector('.cmp-carousel:has(.c-hero-banner)') || document;
-                            const active = parent.querySelector(`.swiper-slide-active[data-swiper-slide-index="${{targetIdx}}"]`) 
-                                           || parent.querySelector('.swiper-slide-active');
-
-                            if (!active) return {{ sig: "null", match: false }};
-
-                            const img = active.querySelector('img');
-                            const text = active.innerText.trim().substring(0, 80);
-                            const currentIdx = active.getAttribute('data-swiper-slide-index');
-
-                            // FORCE A REFLOW to fix sub-pixel blur before return
-                            active.offsetHeight; 
-
-                            return {{
-                                sig: (img ? img.src : 'no-img') + "|" + text,
-                                match: currentIdx == targetIdx
-                            }};
-                        }}
-                    """, i)
-
-                    current_sig = signature_data['sig']
-                    is_correct_index = signature_data['match']
-
-                    if current_sig in captured_signatures and attempt < 3:
-                        log(f"   ⚠️ Duplicate detected. Retrying navigation...")
-                        time.sleep(0.5)
-                        continue
-
-                    if not is_correct_index and attempt < 3:
-                        log(f"   ⚠️ Swiper active index mismatch. Retrying...")
-                        time.sleep(0.5)
-                        continue
-
-                    # 5. Capture Logic
-                    # Updated to ensure we grab from the correct carousel context
-                    active_slide_selector = f".cmp-carousel:has(.c-hero-banner) .swiper-slide-active[data-swiper-slide-index='{i}']"
+                
+                for attempt in range(3):
+                    # Navigation: Click specific indicator
                     try:
-                        if page.locator(active_slide_selector).count() == 0:
-                             active_slide_selector = ".cmp-carousel__item.swiper-slide-active"
-                        page.wait_for_selector(active_slide_selector, timeout=2000)
-                    except:
-                        active_slide_selector = ".cmp-carousel__item.swiper-slide-active"
+                        # Direct JS click is often more reliable for overlay elements
+                        page.evaluate(f"""(selector, i) => {{
+                            const car = document.querySelector(selector);
+                            const inds = car.querySelectorAll('.cmp-carousel__indicator');
+                            if(inds[i]) inds[i].click();
+                        }}""", used_selector, i)
+                        
+                        # Backup Playwright click
+                        # indicators_locator.nth(i).click()
+                        
+                    except Exception as e:
+                        log(f"   ⚠️ Nav error: {e}")
 
-                    # SPEED FIX: Use JPEG instead of PNG for faster processing
+                    time.sleep(2.0)
+                    apply_clean_styles(page)
+                    
                     filename = f"{country_code}_{mode}_hero_{slide_num}.jpg"
                     filepath = os.path.join(session_path, filename)
+                    
+                    try:
+                        # Capture the specific active slide if possible
+                        # Based on your HTML: class contains "swiper-slide-active" or "cmp-carousel__item--active"
+                        active_slide = hero_carousel.locator(".swiper-slide-active").first
+                        
+                        if active_slide.is_visible():
+                            active_slide.screenshot(path=filepath, scale="device", quality=95)
+                        else:
+                            # Fallback: Capture entire carousel
+                            hero_carousel.screenshot(path=filepath, scale="device", quality=95)
 
-                    element = None
-                    banner_selectors = [
-                        f"{active_slide_selector} .c-hero-banner",
-                        f"{active_slide_selector} .cmp-image",
-                        active_slide_selector
-                    ]
-
-                    for selector in banner_selectors:
-                        element = page.query_selector(selector)
-                        if element: break
-
-                    if element:
-                        element.scroll_into_view_if_needed()
-                        # Shortened wait for settling
-                        time.sleep(0.2)
-
-                        # Use scale='device' for the screenshot to respect our DPR 2.0
-                        # SPEED FIX: Save as JPEG to reduce file size and encoding time
-                        element.screenshot(path=filepath, scale="device", type="jpeg", quality=95)
-                        captured_signatures.append(current_sig)
                         log(f"✅ Captured: {filename}")
-
-                        cloudinary_url = None
-                        cloudinary_id = None
-
+                        
+                        c_url = None
                         if upload_to_cloud:
-                            log(f"☁️ Uploading to Cloud...")
-                            cloudinary_url, cloudinary_id = upload_to_cloudinary(filepath, country_code, mode,
-                                                                                 slide_num)
-
-                        yield filepath, slide_num, cloudinary_url
+                             c_url, _ = upload_to_cloudinary(filepath, country_code, mode, slide_num)
+                        
+                        yield filepath, slide_num, c_url
                         success = True
                         break
+                    except Exception as e:
+                        log(f"   ⚠️ Capture error: {e}")
+                        time.sleep(1)
 
                 if not success:
-                    log(f"   ❌ Failed to capture unique version of slide {slide_num} after 4 attempts")
+                    log(f"   ❌ Failed slide {slide_num}")
 
         except Exception as e:
             log(f"❌ Error: {str(e)}")
