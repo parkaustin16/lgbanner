@@ -435,51 +435,122 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             log(f"🌐 Navigating to {url}...")
             time.sleep(random.uniform(0.5, 1.5))
             
-            # CRITICAL FIX: Wait for network to be idle
+            # Use networkidle and longer timeout
             page.goto(url, wait_until="networkidle", timeout=90000)
             
-            # NEW: Wait for Swiper to fully initialize
+            # NEW: More flexible carousel initialization detection
             log("⏳ Waiting for carousel to initialize...")
-            try:
-                page.wait_for_selector('.cmp-carousel.swiper-initialized', timeout=15000)
-            except:
-                log("⚠️ Swiper-initialized class not found, continuing anyway...")
             
-            time.sleep(3)  # Let carousel settle after init
+            # Try multiple detection methods
+            carousel_ready = False
+            
+            # Method 1: Wait for swiper-initialized class
+            try:
+                page.wait_for_selector('.cmp-carousel.swiper-initialized', timeout=8000)
+                log("✅ Swiper initialized (method 1)")
+                carousel_ready = True
+            except:
+                log("⚠️ Swiper-initialized class not found, trying alternative methods...")
+            
+            # Method 2: Check if swiper object exists
+            if not carousel_ready:
+                try:
+                    has_swiper = page.evaluate("""
+                        () => {
+                            const carousel = document.querySelector('.cmp-carousel');
+                            return carousel && carousel.swiper ? true : false;
+                        }
+                    """)
+                    if has_swiper:
+                        log("✅ Swiper object detected (method 2)")
+                        carousel_ready = True
+                except:
+                    pass
+            
+            # Method 3: Wait for carousel content to be visible
+            if not carousel_ready:
+                try:
+                    page.wait_for_selector('.cmp-carousel .swiper-wrapper', timeout=5000)
+                    log("✅ Carousel wrapper found (method 3)")
+                    carousel_ready = True
+                except:
+                    pass
+            
+            # Method 4: Just wait longer
+            if not carousel_ready:
+                log("⏳ Using fallback wait time...")
+                time.sleep(5)
+                carousel_ready = True
+            
+            # Additional settling time
+            time.sleep(2)
             
             # Simulate human behavior
             page.mouse.move(random.randint(100, 300), random.randint(100, 300))
-            time.sleep(random.uniform(0.5, 1.0))
+            time.sleep(random.uniform(0.3, 0.7))
 
             # Cookie handling
             try:
                 accept_btn = page.locator("#onetrust-accept-btn-handler")
-                if accept_btn.is_visible(timeout=5000):
+                if accept_btn.is_visible(timeout=3000):
                     log("🍪 Accepting cookies...")
                     time.sleep(random.uniform(0.3, 0.7))
                     accept_btn.click()
-                    time.sleep(random.uniform(0.8, 1.5))
+                    time.sleep(random.uniform(1.0, 1.5))
             except:
                 pass
 
-            # NEW: Wait specifically for active slide before searching
-            try:
-                page.wait_for_selector('.swiper-slide-active', timeout=10000)
-            except:
-                log("⚠️ No active slide found yet, trying alternate selector...")
+            # Wait for carousel to be present (using multiple selectors)
+            log("🔍 Looking for carousel...")
+            carousel_found = False
+            carousel_selectors = [
+                "main .cmp-carousel",
+                ".main .cmp-carousel",
+                "#contents .cmp-carousel",
+                ".cmp-carousel"
+            ]
             
-            page.wait_for_selector("main .cmp-carousel, .main .cmp-carousel, #contents .cmp-carousel", timeout=30000)
+            for selector in carousel_selectors:
+                try:
+                    page.wait_for_selector(selector, timeout=5000)
+                    log(f"✅ Found carousel with: {selector}")
+                    carousel_found = True
+                    break
+                except:
+                    continue
+            
+            if not carousel_found:
+                log("❌ No carousel found with any selector")
+                page.screenshot(path=os.path.join(session_path, "debug_no_carousel.png"))
+                return
 
             hero_carousel = find_hero_carousel(page, log_callback)
 
             if not hero_carousel:
                 log("❌ Could not identify hero carousel")
-                page.screenshot(path=os.path.join(session_path, "debug_no_carousel.png"))
+                page.screenshot(path=os.path.join(session_path, "debug_carousel_detection_failed.png"))
                 return
+
+            # Check if swiper is available before using it
+            has_swiper = page.evaluate("""
+                () => {
+                    const carousel = document.querySelector('.cmp-carousel');
+                    return carousel && carousel.swiper ? true : false;
+                }
+            """)
+            
+            if has_swiper:
+                log("✅ Swiper API available for navigation")
+            else:
+                log("⚠️ No Swiper API - will use indicator clicks")
 
             indicators = list(hero_carousel.query_selector_all(".cmp-carousel__indicator"))
             num_slides = len(indicators)
             log(f"📸 Found {num_slides} indicators in carousel.")
+
+            if num_slides == 0:
+                log("❌ No indicators found in carousel")
+                return
 
             captured_signatures = []
 
@@ -490,118 +561,144 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                 for attempt in range(4):
                     log(f"   Capturing slide {slide_num} (Attempt {attempt + 1})...")
                     
-                    time.sleep(random.uniform(0.8, 1.5))
+                    time.sleep(random.uniform(1.0, 1.5))
 
-                    # UPDATED: Enhanced slide navigation
-                    page.evaluate(f"""
-                        (idx) => {{
-                            const car = document.querySelector('.cmp-carousel');
-                            if (car && car.swiper) {{
-                                // STOP autoplay first
-                                if (car.swiper.autoplay) {{
-                                    car.swiper.autoplay.stop();
-                                }}
-                                
-                                // Force instant transitions
-                                car.swiper.params.speed = 0;
-                                car.swiper.params.autoplay = false;
-                                
-                                // Navigate to slide
-                                if (typeof car.swiper.slideToLoop === 'function') {{
-                                    car.swiper.slideToLoop(idx, 0);
+                    # Enhanced slide navigation with better error handling
+                    try:
+                        page.evaluate(f"""
+                            (idx) => {{
+                                const car = document.querySelector('.cmp-carousel');
+                                if (car && car.swiper) {{
+                                    // Using Swiper API
+                                    if (car.swiper.autoplay && car.swiper.autoplay.stop) {{
+                                        car.swiper.autoplay.stop();
+                                    }}
+                                    
+                                    car.swiper.params.speed = 0;
+                                    car.swiper.params.autoplay = false;
+                                    
+                                    if (typeof car.swiper.slideToLoop === 'function') {{
+                                        car.swiper.slideToLoop(idx, 0);
+                                    }} else {{
+                                        car.swiper.slideTo(idx, 0);
+                                    }}
+                                    
+                                    if (car.swiper.update) {{
+                                        car.swiper.update();
+                                    }}
                                 }} else {{
-                                    car.swiper.slideTo(idx, 0);
+                                    // Fallback: click indicator
+                                    const inds = document.querySelectorAll('.cmp-carousel__indicator');
+                                    if (inds[idx]) {{
+                                        inds[idx].click();
+                                    }}
                                 }}
-                                
-                                // Force update
-                                car.swiper.update();
-                            }} else {{
-                                const inds = document.querySelectorAll('.cmp-carousel__indicator');
-                                if (inds[idx]) inds[idx].click();
                             }}
-                        }}
-                    """, i)
+                        """, i)
+                    except Exception as nav_error:
+                        log(f"   ⚠️ Navigation error: {str(nav_error)[:50]}")
+                        # Fallback: try clicking the indicator directly
+                        try:
+                            if i < len(indicators):
+                                indicators[i].click()
+                        except:
+                            pass
 
-                    # Increased wait time after navigation
-                    time.sleep(2.0)
+                    # Wait for slide transition
+                    time.sleep(2.5)
 
                     apply_clean_styles(page)
 
-                    signature_data = page.evaluate(f"""
-                        (targetIdx) => {{
-                            const active = document.querySelector(`.swiper-slide-active[data-swiper-slide-index="${{targetIdx}}"]`) 
-                                           || document.querySelector('.swiper-slide-active');
+                    # Check current slide
+                    try:
+                        signature_data = page.evaluate(f"""
+                            (targetIdx) => {{
+                                const active = document.querySelector('.swiper-slide-active');
+                                
+                                if (!active) return {{ sig: "null", match: false }};
 
-                            if (!active) return {{ sig: "null", match: false }};
+                                const img = active.querySelector('img');
+                                const text = active.innerText.trim().substring(0, 80);
+                                const currentIdx = active.getAttribute('data-swiper-slide-index');
 
-                            const img = active.querySelector('img');
-                            const text = active.innerText.trim().substring(0, 80);
-                            const currentIdx = active.getAttribute('data-swiper-slide-index');
+                                active.offsetHeight; 
 
-                            active.offsetHeight; 
-
-                            return {{
-                                sig: (img ? img.src : 'no-img') + "|" + text,
-                                match: currentIdx == targetIdx
-                            }};
-                        }}
-                    """, i)
+                                return {{
+                                    sig: (img ? img.src : 'no-img') + "|" + text,
+                                    match: String(currentIdx) === String(targetIdx)
+                                }};
+                            }}
+                        """, i)
+                    except Exception as eval_error:
+                        log(f"   ⚠️ Evaluation error: {str(eval_error)[:50]}")
+                        signature_data = {'sig': f'attempt_{attempt}', 'match': True}
 
                     current_sig = signature_data['sig']
                     is_correct_index = signature_data['match']
 
                     if current_sig in captured_signatures and attempt < 3:
-                        log(f"   ⚠️ Duplicate detected. Retrying navigation...")
-                        time.sleep(0.5)
+                        log(f"   ⚠️ Duplicate detected. Retrying...")
+                        time.sleep(1.0)
                         continue
 
                     if not is_correct_index and attempt < 3:
-                        log(f"   ⚠️ Swiper active index mismatch. Retrying...")
-                        time.sleep(0.5)
+                        log(f"   ⚠️ Index mismatch. Retrying...")
+                        time.sleep(1.0)
                         continue
 
-                    active_slide_selector = f".cmp-carousel__item.swiper-slide-active[data-swiper-slide-index='{i}']"
-                    try:
-                        page.wait_for_selector(active_slide_selector, timeout=2000)
-                    except:
-                        active_slide_selector = ".cmp-carousel__item.swiper-slide-active"
-
+                    # Find and capture the active slide
                     filename = f"{country_code}_{mode}_hero_{slide_num}.jpg"
                     filepath = os.path.join(session_path, filename)
 
                     element = None
                     banner_selectors = [
-                        f"{active_slide_selector} .c-hero-banner",
-                        f"{active_slide_selector} .cmp-image",
-                        active_slide_selector
+                        f".swiper-slide-active[data-swiper-slide-index='{i}'] .c-hero-banner",
+                        ".swiper-slide-active .c-hero-banner",
+                        f".swiper-slide-active[data-swiper-slide-index='{i}'] .cmp-image",
+                        ".swiper-slide-active .cmp-image",
+                        f".swiper-slide-active[data-swiper-slide-index='{i}']",
+                        ".swiper-slide-active"
                     ]
 
                     for selector in banner_selectors:
-                        element = page.query_selector(selector)
-                        if element: break
+                        try:
+                            element = page.query_selector(selector)
+                            if element:
+                                bbox = element.bounding_box()
+                                if bbox and bbox['height'] > 100:
+                                    break
+                        except:
+                            continue
 
                     if element:
-                        element.scroll_into_view_if_needed()
-                        time.sleep(0.3)
+                        try:
+                            element.scroll_into_view_if_needed()
+                            time.sleep(0.5)
 
-                        element.screenshot(path=filepath, scale="device", type="jpeg", quality=95)
-                        captured_signatures.append(current_sig)
-                        log(f"✅ Captured: {filename}")
+                            element.screenshot(path=filepath, scale="device", type="jpeg", quality=95)
+                            captured_signatures.append(current_sig)
+                            log(f"✅ Captured: {filename}")
 
-                        cloudinary_url = None
-                        cloudinary_id = None
+                            cloudinary_url = None
+                            if upload_to_cloud:
+                                log(f"☁️ Uploading to Cloud...")
+                                cloudinary_url, _ = upload_to_cloudinary(filepath, country_code, mode, slide_num)
 
-                        if upload_to_cloud:
-                            log(f"☁️ Uploading to Cloud...")
-                            cloudinary_url, cloudinary_id = upload_to_cloudinary(filepath, country_code, mode,
-                                                                                 slide_num)
-
-                        yield filepath, slide_num, cloudinary_url
-                        success = True
-                        break
+                            yield filepath, slide_num, cloudinary_url
+                            success = True
+                            break
+                        except Exception as screenshot_error:
+                            log(f"   ⚠️ Screenshot error: {str(screenshot_error)[:50]}")
+                    else:
+                        log(f"   ⚠️ Could not find active slide element")
 
                 if not success:
-                    log(f"   ❌ Failed to capture unique version of slide {slide_num} after 4 attempts")
+                    log(f"   ❌ Failed to capture slide {slide_num} after 4 attempts")
+                    # Save debug screenshot
+                    try:
+                        page.screenshot(path=os.path.join(session_path, f"debug_slide_{slide_num}_failed.png"))
+                    except:
+                        pass
 
         except Exception as e:
             log(f"❌ Error: {str(e)}")
