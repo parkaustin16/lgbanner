@@ -323,7 +323,6 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
         if log_callback:
             log_callback(message)
 
-    # Resolution Boost: We set a high device_pixel_ratio to avoid blurriness
     size: ViewportSize = {'width': 1920, 'height': 720} if mode == 'desktop' else {'width': 360, 'height': 480}
 
     session_folder_name = f"{country_code}_{mode}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -342,14 +341,12 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             ]
         )
 
-        # USE DPR 2.0 FOR SHARPER CAPTURES
         context = browser.new_context(viewport=size, device_scale_factor=2)
         page = context.new_page()
 
         def block_chat_requests(route):
             url_str = route.request.url.lower()
-            chat_keywords = ["genesys", "liveperson", "salesforceliveagent", "adobe-privacy", "chatbot",
-                             "proactive-chat"]
+            chat_keywords = ["genesys", "liveperson", "salesforceliveagent", "adobe-privacy", "chatbot", "proactive-chat"]
             if any(key in url_str for key in chat_keywords):
                 route.abort()
             else:
@@ -359,174 +356,169 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
         try:
             log(f"🌐 Navigating to {url}...")
-            # Use networkidle to wait for dynamic content
-            page.goto(url, wait_until="networkidle", timeout=90000)
-
+            page.goto(url, timeout=90000)
+            
+            # Wait for ANY content to load
+            page.wait_for_load_state("domcontentloaded", timeout=30000)
+            
+            # Cookie acceptance
             try:
                 accept_btn = page.locator("#onetrust-accept-btn-handler")
-                if accept_btn.is_visible(timeout=5000):
+                if accept_btn.is_visible(timeout=3000):
                     log("🍪 Accepting cookies...")
                     accept_btn.click()
-                    time.sleep(1.5)
+                    time.sleep(2)
             except:
                 pass
 
-            # Wait for carousel with multiple strategies
-            log("⏳ Waiting for carousel to load...")
-            carousel_found = False
+            # UNIVERSAL WAIT: Just give the page time to render everything
+            log("⏳ Waiting for page to fully render (8 seconds)...")
+            time.sleep(8)
+
+            # NOW find the carousel - no timeouts, just check what exists
+            log("🔍 Detecting carousel structure...")
             
-            try:
-                page.wait_for_selector(".cmp-carousel", timeout=10000)
-                carousel_found = True
-                log("✅ Carousel detected")
-            except:
-                log("⚠️ Carousel wait timed out")
+            hero_carousel = page.evaluate("""
+                () => {
+                    // Find ALL carousels
+                    const allCarousels = Array.from(document.querySelectorAll('.cmp-carousel, .swiper'));
+                    
+                    // Filter out navigation carousels
+                    const mainCarousels = allCarousels.filter(car => {
+                        // Skip if in nav/header
+                        if (car.closest('header, nav, .c-header, .ui-gnb, .ui-gnb-banner')) {
+                            return false;
+                        }
+                        
+                        // Must have indicators
+                        const indicators = car.querySelectorAll('.cmp-carousel__indicator, .swiper-pagination-bullet');
+                        if (indicators.length === 0) return false;
+                        
+                        // Must be visible and large
+                        const rect = car.getBoundingClientRect();
+                        if (rect.height < 250) return false;
+                        
+                        return true;
+                    });
+                    
+                    if (mainCarousels.length === 0) {
+                        return { found: false, count: allCarousels.length };
+                    }
+                    
+                    // Get the first valid carousel
+                    const heroCarousel = mainCarousels[0];
+                    const indicators = heroCarousel.querySelectorAll('.cmp-carousel__indicator, .swiper-pagination-bullet');
+                    
+                    // Add unique ID so we can find it again
+                    heroCarousel.setAttribute('data-hero-carousel', 'true');
+                    
+                    return {
+                        found: true,
+                        count: indicators.length,
+                        hasSwiper: !!heroCarousel.swiper
+                    };
+                }
+            """)
             
-            if not carousel_found:
-                try:
-                    page.wait_for_selector(".c-hero-banner", timeout=10000)
-                    carousel_found = True
-                    log("✅ Hero banner detected")
-                except:
-                    log("❌ No carousel or hero banner found")
-                    return
-
-            # Additional wait for JS initialization
-            time.sleep(2)
-
-            hero_carousel = find_hero_carousel(page, log_callback)
-
-            if not hero_carousel:
-                log("❌ Could not identify hero carousel")
+            if not hero_carousel['found']:
+                log(f"❌ No hero carousel found (total carousels on page: {hero_carousel.get('count', 0)})")
                 return
+            
+            num_slides = hero_carousel['count']
+            log(f"✅ Found hero carousel with {num_slides} slides")
 
-            indicators = list(hero_carousel.query_selector_all(".cmp-carousel__indicator"))
-            num_slides = len(indicators)
-            log(f"📸 Found {num_slides} indicators in carousel.")
-
-            # TRACKER: To prevent capturing the same banner twice
+            # Now capture each slide
             captured_signatures = []
 
             for i in range(num_slides):
                 slide_num = i + 1
                 success = False
 
-                # ATTEMPT LOOP: Handles mobile snapping/duplicates
-                for attempt in range(4):
-                    log(f"   Capturing slide {slide_num} (Attempt {attempt + 1})...")
+                for attempt in range(3):
+                    log(f"   📸 Slide {slide_num} (attempt {attempt + 1})...")
 
-                    # 1. Force the swiper state & stop autoplay via JS
-                    try:
-                        hero_carousel.evaluate("""
-                            (carouselEl, idx) => {
-                                const car = carouselEl;
-                                if (car.swiper) {
-                                    car.swiper.autoplay.stop();
-                                    car.swiper.params.speed = 0;
-                                    if (typeof car.swiper.slideToLoop === 'function') {
-                                        car.swiper.slideToLoop(idx);
-                                    } else {
-                                        car.swiper.slideTo(idx);
-                                    }
-                                } else {
-                                    const inds = car.querySelectorAll('.cmp-carousel__indicator');
-                                    if (inds[idx]) inds[idx].click();
-                                }
-                            }
-                        """, i)
-                    except Exception as nav_error:
-                        log(f"   ⚠️ Navigation error: {nav_error}")
-                        time.sleep(0.5)
-                        continue
-
-                    # 2. Wait for visual stability
-                    time.sleep(1.5)
-
-                    # 3. Apply styles for clean capture
-                    apply_clean_styles(page)
-
-                    # 4. Detect "Current Slide Signature" to verify uniqueness
-                    signature_data = page.evaluate("""
-                        (targetIdx) => {
-                            const active = document.querySelector(`.swiper-slide-active[data-swiper-slide-index="${targetIdx}"]`) 
-                                           || document.querySelector('.swiper-slide-active');
-
-                            if (!active) return { sig: "null", match: false };
-
-                            const img = active.querySelector('img');
-                            const text = active.innerText.trim().substring(0, 80);
-                            const currentIdx = active.getAttribute('data-swiper-slide-index');
-
-                            active.offsetHeight; 
-
-                            return {
-                                sig: (img ? img.src : 'no-img') + "|" + text,
-                                match: currentIdx == targetIdx
-                            };
-                        }
+                    # Navigate to slide
+                    page.evaluate(f"""
+                        (slideIdx) => {{
+                            const carousel = document.querySelector('[data-hero-carousel="true"]');
+                            if (!carousel) return;
+                            
+                            if (carousel.swiper) {{
+                                carousel.swiper.autoplay?.stop();
+                                carousel.swiper.params.speed = 0;
+                                if (carousel.swiper.slideToLoop) {{
+                                    carousel.swiper.slideToLoop(slideIdx);
+                                }} else {{
+                                    carousel.swiper.slideTo(slideIdx);
+                                }}
+                            }} else {{
+                                const indicators = carousel.querySelectorAll('.cmp-carousel__indicator');
+                                if (indicators[slideIdx]) indicators[slideIdx].click();
+                            }}
+                        }}
                     """, i)
 
-                    current_sig = signature_data['sig']
-                    is_correct_index = signature_data['match']
+                    time.sleep(2)  # Wait for slide transition
+                    apply_clean_styles(page)
 
-                    if current_sig in captured_signatures and attempt < 3:
-                        log(f"   ⚠️ Duplicate detected. Retrying navigation...")
-                        time.sleep(0.5)
+                    # Get signature
+                    sig_data = page.evaluate(f"""
+                        (targetIdx) => {{
+                            const active = document.querySelector('.swiper-slide-active');
+                            if (!active) return {{ sig: 'null', match: false }};
+                            
+                            const img = active.querySelector('img');
+                            const text = active.innerText.substring(0, 60);
+                            const idx = active.getAttribute('data-swiper-slide-index');
+                            
+                            return {{
+                                sig: (img?.src || 'no-img') + '|' + text,
+                                match: idx == targetIdx
+                            }};
+                        }}
+                    """, i)
+
+                    if sig_data['sig'] in captured_signatures:
+                        log(f"   ⚠️ Duplicate, retrying...")
+                        time.sleep(1)
                         continue
 
-                    if not is_correct_index and attempt < 3:
-                        log(f"   ⚠️ Swiper active index mismatch. Retrying...")
-                        time.sleep(0.5)
-                        continue
-
-                    # 5. Capture Logic
-                    active_slide_selector = f".cmp-carousel__item.swiper-slide-active[data-swiper-slide-index='{i}']"
-                    try:
-                        page.wait_for_selector(active_slide_selector, timeout=2000)
-                    except:
-                        active_slide_selector = ".cmp-carousel__item.swiper-slide-active"
-
+                    # Take screenshot
                     filename = f"{country_code}_{mode}_hero_{slide_num}.jpg"
                     filepath = os.path.join(session_path, filename)
 
-                    element = None
-                    banner_selectors = [
-                        f"{active_slide_selector} .c-hero-banner",
-                        f"{active_slide_selector} .cmp-image",
-                        active_slide_selector
-                    ]
+                    # Try to find the active slide element
+                    try:
+                        active_slide = page.query_selector(".swiper-slide-active")
+                        if active_slide:
+                            # Try to find hero banner within
+                            hero_elem = active_slide.query_selector(".c-hero-banner")
+                            if not hero_elem:
+                                hero_elem = active_slide
+                            
+                            hero_elem.screenshot(path=filepath, type="jpeg", quality=95)
+                            captured_signatures.append(sig_data['sig'])
+                            log(f"   ✅ Captured: {filename}")
 
-                    for selector in banner_selectors:
-                        element = page.query_selector(selector)
-                        if element: break
+                            cloudinary_url = None
+                            if upload_to_cloud:
+                                log(f"   ☁️ Uploading...")
+                                cloudinary_url, _ = upload_to_cloudinary(filepath, country_code, mode, slide_num)
 
-                    if element:
-                        element.scroll_into_view_if_needed()
-                        time.sleep(0.2)
-
-                        element.screenshot(path=filepath, scale="device", type="jpeg", quality=95)
-                        captured_signatures.append(current_sig)
-                        log(f"✅ Captured: {filename}")
-
-                        cloudinary_url = None
-                        cloudinary_id = None
-
-                        if upload_to_cloud:
-                            log(f"☁️ Uploading to Cloud...")
-                            cloudinary_url, cloudinary_id = upload_to_cloudinary(filepath, country_code, mode,
-                                                                                 slide_num)
-
-                        yield filepath, slide_num, cloudinary_url
-                        success = True
-                        break
+                            yield filepath, slide_num, cloudinary_url
+                            success = True
+                            break
+                    except Exception as e:
+                        log(f"   ⚠️ Screenshot failed: {e}")
+                        continue
 
                 if not success:
-                    log(f"   ❌ Failed to capture unique version of slide {slide_num} after 4 attempts")
+                    log(f"   ❌ Failed to capture slide {slide_num}")
 
         except Exception as e:
             log(f"❌ Error: {str(e)}")
             import traceback
-            log(f"   Traceback: {traceback.format_exc()}")
+            log(f"   {traceback.format_exc()}")
         finally:
             log("🔒 Closing browser.")
             browser.close()
