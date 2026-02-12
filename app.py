@@ -4,6 +4,7 @@ import zipfile
 import io
 import sys
 import asyncio
+import random
 from datetime import datetime
 import streamlit as st
 import cloudinary
@@ -27,10 +28,10 @@ def install_playwright_browsers():
 
 # Call the function
 install_playwright_browsers()
+
 # Load environment variables from .env file if it exists
 try:
     from dotenv import load_dotenv
-
     load_dotenv()
 except ImportError:
     pass  # dotenv not installed, will use system env variables
@@ -40,6 +41,7 @@ if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 from playwright.sync_api import sync_playwright, ViewportSize
+from playwright_stealth import stealth_sync
 
 # --- CONFIGURATION ---
 UPLOAD_FOLDER = 'static/captures'
@@ -212,7 +214,7 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
         return None
 
 
-# --- CORE CAPTURE LOGIC (Enhanced with Hero Detection) ---
+# --- CORE CAPTURE LOGIC (Enhanced with Hero Detection + STEALTH MODE) ---
 
 def apply_clean_styles(page_obj):
     """Comprehensive CSS cleanup with Sharpening and Speed fixes."""
@@ -426,20 +428,96 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
     os.makedirs(session_path, exist_ok=True)
 
     with sync_playwright() as p:
-        log("🚀 Launching browser...")
+        log("🚀 Launching browser with stealth mode...")
+        
+        # STEALTH MODE: Enhanced browser arguments
         browser = p.chromium.launch(
             headless=True,
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
-                "--disable-gpu"
+                "--disable-blink-features=AutomationControlled",  # Critical for stealth
+                "--disable-gpu",
+                "--disable-web-security",
+                "--disable-features=IsolateOrigins,site-per-process",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-infobars",
+                "--window-size=1920,1080"
             ]
         )
 
-        # USE DPR 2.0 FOR SHARPER CAPTURES
-        context = browser.new_context(viewport=size, device_scale_factor=2)
+        # STEALTH MODE: Realistic user agent and context settings
+        user_agents = {
+            'desktop': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'mobile': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
+        }
+        
+        context = browser.new_context(
+            viewport=size, 
+            device_scale_factor=2,
+            user_agent=user_agents.get(mode, user_agents['desktop']),
+            locale='en-US',
+            timezone_id='America/New_York',
+            # Additional stealth parameters
+            has_touch=mode == 'mobile',
+            is_mobile=mode == 'mobile',
+            permissions=['geolocation']
+        )
+        
         page = context.new_page()
+        
+        # STEALTH MODE: Apply playwright-stealth
+        log("🥷 Applying stealth techniques...")
+        stealth_sync(page)
+        
+        # STEALTH MODE: Additional anti-detection JavaScript
+        page.add_init_script("""
+            // Override the navigator.webdriver property
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+            
+            // Mock plugins to appear as regular browser
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [
+                    {
+                        0: {type: "application/x-google-chrome-pdf", suffixes: "pdf", description: "Portable Document Format"},
+                        description: "Portable Document Format",
+                        filename: "internal-pdf-viewer",
+                        length: 1,
+                        name: "Chrome PDF Plugin"
+                    }
+                ]
+            });
+            
+            // Override permissions
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                    Promise.resolve({ state: Notification.permission }) :
+                    originalQuery(parameters)
+            );
+            
+            // Mock languages
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['en-US', 'en']
+            });
+            
+            // Mock platform
+            Object.defineProperty(navigator, 'platform', {
+                get: () => 'Win32'
+            });
+            
+            // Chrome runtime
+            window.chrome = {
+                runtime: {}
+            };
+            
+            // Remove automation-related properties
+            delete navigator.__proto__.webdriver;
+        """)
 
         def block_chat_requests(route):
             url_str = route.request.url.lower()
@@ -454,16 +532,38 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
         try:
             log(f"🌐 Navigating to {url}...")
-            # SPEED FIX: Use domcontentloaded for faster start
+            # STEALTH MODE: Human-like delay before navigation
+            time.sleep(random.uniform(0.5, 1.5))
+            
+            # Use domcontentloaded for faster start
             page.goto(url, wait_until="domcontentloaded", timeout=90000)
+            
+            # STEALTH MODE: Simulate human-like mouse movement
+            page.mouse.move(random.randint(100, 300), random.randint(100, 300))
+            time.sleep(random.uniform(0.3, 0.8))
 
+            # Enhanced cookie acceptance with multiple selectors
             try:
-                accept_btn = page.locator("#onetrust-accept-btn-handler")
-                if accept_btn.is_visible(timeout=5000):
-                    log("🍪 Accepting cookies...")
-                    accept_btn.click()
-                    # Shortened wait after cookie acceptance
-                    time.sleep(0.5)
+                cookie_selectors = [
+                    "#onetrust-accept-btn-handler",
+                    ".cookie-accept",
+                    "button[id*='accept']",
+                    "button[class*='accept-cookie']",
+                    "[aria-label*='Accept']"
+                ]
+                
+                for selector in cookie_selectors:
+                    try:
+                        accept_btn = page.locator(selector)
+                        if accept_btn.is_visible(timeout=3000):
+                            log(f"🍪 Accepting cookies using selector: {selector}")
+                            # Human-like delay before clicking
+                            time.sleep(random.uniform(0.3, 0.7))
+                            accept_btn.click()
+                            time.sleep(random.uniform(0.8, 1.5))
+                            break
+                    except:
+                        continue
             except:
                 pass
 
@@ -473,6 +573,8 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
             if not hero_carousel:
                 log("❌ Could not identify hero carousel")
+                # Save debug screenshot
+                page.screenshot(path=os.path.join(session_path, "debug_no_carousel.png"))
                 return
 
             indicators = list(hero_carousel.query_selector_all(".cmp-carousel__indicator"))
@@ -487,8 +589,11 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                 success = False
 
                 # ATTEMPT LOOP: Handles mobile snapping/duplicates
-                for attempt in range(4):  # Increased to 4 attempts for tricky sites
+                for attempt in range(4):
                     log(f"   Capturing slide {slide_num} (Attempt {attempt + 1})...")
+                    
+                    # STEALTH MODE: Human-like delay between slides
+                    time.sleep(random.uniform(0.8, 1.5))
 
                     # 1. Force the swiper state & stop autoplay via JS
                     page.evaluate(f"""
@@ -510,8 +615,8 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                         }}
                     """, i)
 
-                    # 2. Hard wait for visual stability (Reduced to 1s because transitions are disabled)
-                    time.sleep(1.0)
+                    # 2. Hard wait for visual stability
+                    time.sleep(1.2)
 
                     # 3. Apply styles for clean capture
                     apply_clean_styles(page)
@@ -558,7 +663,6 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                     except:
                         active_slide_selector = ".cmp-carousel__item.swiper-slide-active"
 
-                    # SPEED FIX: Use JPEG instead of PNG for faster processing
                     filename = f"{country_code}_{mode}_hero_{slide_num}.jpg"
                     filepath = os.path.join(session_path, filename)
 
@@ -575,11 +679,9 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
                     if element:
                         element.scroll_into_view_if_needed()
-                        # Shortened wait for settling
-                        time.sleep(0.2)
+                        time.sleep(0.3)
 
                         # Use scale='device' for the screenshot to respect our DPR 2.0
-                        # SPEED FIX: Save as JPEG to reduce file size and encoding time
                         element.screenshot(path=filepath, scale="device", type="jpeg", quality=95)
                         captured_signatures.append(current_sig)
                         log(f"✅ Captured: {filename}")
@@ -601,6 +703,11 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
         except Exception as e:
             log(f"❌ Error: {str(e)}")
+            # Save debug screenshot on error
+            try:
+                page.screenshot(path=os.path.join(session_path, "debug_error.png"))
+            except:
+                pass
         finally:
             log("🔒 Closing browser.")
             browser.close()
@@ -609,13 +716,16 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 # --- STREAMLIT UI ---
 
 def main():
-    st.title("LG Hero Banner Capture")
+    st.title("LG Hero Banner Capture (Stealth Mode)")
+    
+    st.info("🥷 **Stealth Mode Enabled** - Using enhanced bot detection evasion techniques")
 
     with st.expander("⚙️ Configuration Status", expanded=False):
         cloudinary_configured = all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET])
         airtable_configured = all([AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME])
         st.write("**Cloudinary:**", "✅ Configured" if cloudinary_configured else "❌ Not configured")
         st.write("**Airtable:**", "✅ Configured" if airtable_configured else "❌ Not configured")
+        st.write("**Stealth Mode:**", "✅ Active (playwright-stealth)")
 
     if 'log_messages' not in st.session_state:
         st.session_state.log_messages = []
@@ -636,7 +746,7 @@ def main():
                 if read_response.status_code == 200:
                     st.success("✅ READ access works!")
 
-                    # 2. WRITE TEST (Functional check without the info text)
+                    # 2. WRITE TEST
                     write_data = {
                         "fields": {
                             "country": "Australia",
@@ -694,14 +804,13 @@ def main():
             all_subs.extend(r_list)
 
         # Build Dropdown Options
-        # Options will be: Region Name, All Subsidiaries, or Individual Country Name
         country_labels = ["All Subsidiaries", "Asia", "Europe", "LATAM", "MEA", "Canada"]
         
         # Add individual countries (sorted)
         individual_sorted = sorted(all_subs, key=lambda x: x[1])
         country_labels.extend([label for _, label in individual_sorted])
 
-        selected_option = st.selectbox("Subsidiary/Region", options=country_labels, index=0) # Default to All Subsidiaries
+        selected_option = st.selectbox("Subsidiary/Region", options=country_labels, index=0)
         mode = st.selectbox("View Mode", options=["desktop", "mobile"])
 
         st.divider()
@@ -713,7 +822,6 @@ def main():
         st.divider()
         run_btn = st.button("Start Capture", type="primary", use_container_width=True)
         
-        # Stop Capture Button replaces "Run All Subsidiaries"
         if st.button("Stop Capture", use_container_width=True):
             st.session_state.stop_requested = True
             st.warning("Stop requested. Will exit after current country finishes.")
@@ -726,11 +834,10 @@ def main():
         msg = f"`{datetime.now().strftime('%H:%M:%S')}` {message}"
         st.session_state.log_messages.append(msg)
         
-        # Keep only the last 50 logs to prevent memory/app reset issues
         if len(st.session_state.log_messages) > 50:
             st.session_state.log_messages = st.session_state.log_messages[-50:]
             
-        log_placeholder.markdown("\n\n".join(st.session_state.log_messages[::-1]))
+        log_placeholder.markdown("\\n\\n".join(st.session_state.log_messages[::-1]))
 
     # Logic for Capture
     if run_btn:
@@ -744,7 +851,6 @@ def main():
         elif selected_option in regions:
             capture_queue = regions[selected_option]
         else:
-            # It's an individual country
             selected_code = next(code for code, label in all_subs if label == selected_option)
             capture_queue = [(selected_code, selected_option)]
 
@@ -752,7 +858,6 @@ def main():
         
         progress_bar = st.progress(0)
         
-        # Single view for results if only 1 country, otherwise just show logs
         if len(capture_queue) == 1:
             site, label = capture_queue[0]
             country_full_name = label.split(" (")[0]
@@ -807,7 +912,6 @@ def main():
                 if upload_enabled and cloudinary_urls:
                     save_to_airtable(c_code, mode, cloudinary_urls, c_full_name)
                 
-                # Manual memory cleanup after each country
                 import gc
                 gc.collect()
                 
