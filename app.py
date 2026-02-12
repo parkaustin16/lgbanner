@@ -418,6 +418,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
         if log_callback:
             log_callback(message)
 
+    # Resolution Boost: We set a high device_pixel_ratio to avoid blurriness
     size: ViewportSize = {'width': 1920, 'height': 720} if mode == 'desktop' else {'width': 360, 'height': 480}
 
     session_folder_name = f"{country_code}_{mode}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -436,12 +437,14 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             ]
         )
 
+        # USE DPR 2.0 FOR SHARPER CAPTURES
         context = browser.new_context(viewport=size, device_scale_factor=2)
         page = context.new_page()
 
         def block_chat_requests(route):
             url_str = route.request.url.lower()
-            chat_keywords = ["genesys", "liveperson", "salesforceliveagent", "adobe-privacy", "chatbot", "proactive-chat"]
+            chat_keywords = ["genesys", "liveperson", "salesforceliveagent", "adobe-privacy", "chatbot",
+                             "proactive-chat"]
             if any(key in url_str for key in chat_keywords):
                 route.abort()
             else:
@@ -451,6 +454,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
         try:
             log(f"🌐 Navigating to {url}...")
+            # SPEED FIX: Use domcontentloaded for faster start
             page.goto(url, wait_until="domcontentloaded", timeout=90000)
 
             try:
@@ -458,6 +462,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                 if accept_btn.is_visible(timeout=5000):
                     log("🍪 Accepting cookies...")
                     accept_btn.click()
+                    # Shortened wait after cookie acceptance
                     time.sleep(0.5)
             except:
                 pass
@@ -470,92 +475,61 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                 log("❌ Could not identify hero carousel")
                 return
 
-            # DETECT CAROUSEL TYPE: Swiper vs Custom
-            carousel_info = page.evaluate("""
-                () => {
-                    const carousel = document.querySelector('.cmp-carousel');
-                    if (!carousel) return { found: false };
-                    
-                    const isSwiper = carousel.classList.contains('swiper');
-                    const indicators = carousel.querySelectorAll('.cmp-carousel__indicator, .swiper-pagination-bullet');
-                    
-                    // Mark carousel for easy reference
-                    carousel.setAttribute('data-hero-carousel', 'true');
-                    
-                    return {
-                        found: true,
-                        isSwiper: isSwiper,
-                        slideCount: indicators.length,
-                        hasAutoplay: isSwiper && carousel.swiper?.autoplay
-                    };
-                }
-            """)
+            indicators = list(hero_carousel.query_selector_all(".cmp-carousel__indicator"))
+            num_slides = len(indicators)
+            log(f"📸 Found {num_slides} indicators in carousel.")
 
-            if not carousel_info['found']:
-                log("❌ Could not detect carousel structure")
-                return
-
-            num_slides = carousel_info['slideCount']
-            is_swiper = carousel_info['isSwiper']
-            log(f"📸 Found {num_slides} slides ({('Swiper.js' if is_swiper else 'Custom')} carousel)")
-
+            # TRACKER: To prevent capturing the same banner twice
             captured_signatures = []
 
             for i in range(num_slides):
                 slide_num = i + 1
                 success = False
 
-                for attempt in range(4):
+                # ATTEMPT LOOP: Handles mobile snapping/duplicates
+                for attempt in range(4):  # Increased to 4 attempts for tricky sites
                     log(f"   Capturing slide {slide_num} (Attempt {attempt + 1})...")
 
-                    # UNIVERSAL NAVIGATION: Swiper-aware
+                    # 1. Force the swiper state & stop autoplay via JS
                     page.evaluate(f"""
-                        (slideIdx) => {{
-                            const carousel = document.querySelector('[data-hero-carousel="true"]');
-                            if (!carousel) return;
-                            
-                            if (carousel.swiper) {{
-                                // SWIPER.JS CAROUSEL (New France site)
-                                carousel.swiper.autoplay?.stop();
-                                carousel.swiper.params.speed = 0;
-                                
-                                if (carousel.swiper.slideToLoop) {{
-                                    carousel.swiper.slideToLoop(slideIdx);
+                        (idx) => {{
+                            const car = document.querySelector('.cmp-carousel');
+                            if (car && car.swiper) {{
+                                car.swiper.autoplay.stop();
+                                // Force zero speed for instant jump to avoid animation blur
+                                car.swiper.params.speed = 0;
+                                if (typeof car.swiper.slideToLoop === 'function') {{
+                                    car.swiper.slideToLoop(idx);
                                 }} else {{
-                                    carousel.swiper.slideTo(slideIdx);
+                                    car.swiper.slideTo(idx);
                                 }}
                             }} else {{
-                                // CUSTOM CAROUSEL (Old sites)
-                                const indicators = carousel.querySelectorAll('.cmp-carousel__indicator');
-                                if (indicators[slideIdx]) indicators[slideIdx].click();
+                                const inds = document.querySelectorAll('.cmp-carousel__indicator');
+                                if (inds[idx]) inds[idx].click();
                             }}
                         }}
                     """, i)
 
+                    # 2. Hard wait for visual stability (Reduced to 1s because transitions are disabled)
                     time.sleep(1.0)
+
+                    # 3. Apply styles for clean capture
                     apply_clean_styles(page)
 
-                    # SIGNATURE CHECK: Works for both carousel types
+                    # 4. Detect "Current Slide Signature" to verify uniqueness
                     signature_data = page.evaluate(f"""
                         (targetIdx) => {{
-                            // Try Swiper first
-                            let active = document.querySelector('.swiper-slide-active');
-                            
-                            // Fallback to custom carousel
-                            if (!active) {{
-                                active = document.querySelector('.cmp-carousel__item:first-child');
-                            }}
+                            const active = document.querySelector(`.swiper-slide-active[data-swiper-slide-index="${{targetIdx}}"]`) 
+                                           || document.querySelector('.swiper-slide-active');
 
                             if (!active) return {{ sig: "null", match: false }};
 
                             const img = active.querySelector('img');
                             const text = active.innerText.trim().substring(0, 80);
-                            
-                            // Get index (Swiper uses data attribute)
-                            const currentIdx = active.getAttribute('data-swiper-slide-index') || 
-                                             Array.from(active.parentElement.children).indexOf(active);
+                            const currentIdx = active.getAttribute('data-swiper-slide-index');
 
-                            active.offsetHeight; // Force reflow
+                            // FORCE A REFLOW to fix sub-pixel blur before return
+                            active.offsetHeight; 
 
                             return {{
                                 sig: (img ? img.src : 'no-img') + "|" + text,
@@ -568,39 +542,44 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                     is_correct_index = signature_data['match']
 
                     if current_sig in captured_signatures and attempt < 3:
-                        log(f"   ⚠️ Duplicate detected. Retrying...")
+                        log(f"   ⚠️ Duplicate detected. Retrying navigation...")
                         time.sleep(0.5)
                         continue
 
                     if not is_correct_index and attempt < 3:
-                        log(f"   ⚠️ Index mismatch. Retrying...")
+                        log(f"   ⚠️ Swiper active index mismatch. Retrying...")
                         time.sleep(0.5)
                         continue
 
-                    # CAPTURE LOGIC
+                    # 5. Capture Logic
+                    active_slide_selector = f".cmp-carousel__item.swiper-slide-active[data-swiper-slide-index='{i}']"
+                    try:
+                        page.wait_for_selector(active_slide_selector, timeout=2000)
+                    except:
+                        active_slide_selector = ".cmp-carousel__item.swiper-slide-active"
+
+                    # SPEED FIX: Use JPEG instead of PNG for faster processing
                     filename = f"{country_code}_{mode}_hero_{slide_num}.jpg"
                     filepath = os.path.join(session_path, filename)
 
                     element = None
-                    
-                    # Try Swiper selectors first, then custom
                     banner_selectors = [
-                        ".swiper-slide-active .c-hero-banner",
-                        ".swiper-slide-active .cmp-image",
-                        ".swiper-slide-active",
-                        ".cmp-carousel__item:first-child .c-hero-banner",
-                        ".cmp-carousel__item:first-child"
+                        f"{active_slide_selector} .c-hero-banner",
+                        f"{active_slide_selector} .cmp-image",
+                        active_slide_selector
                     ]
 
                     for selector in banner_selectors:
                         element = page.query_selector(selector)
-                        if element:
-                            break
+                        if element: break
 
                     if element:
                         element.scroll_into_view_if_needed()
+                        # Shortened wait for settling
                         time.sleep(0.2)
 
+                        # Use scale='device' for the screenshot to respect our DPR 2.0
+                        # SPEED FIX: Save as JPEG to reduce file size and encoding time
                         element.screenshot(path=filepath, scale="device", type="jpeg", quality=95)
                         captured_signatures.append(current_sig)
                         log(f"✅ Captured: {filename}")
@@ -610,21 +589,21 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
                         if upload_to_cloud:
                             log(f"☁️ Uploading to Cloud...")
-                            cloudinary_url, cloudinary_id = upload_to_cloudinary(filepath, country_code, mode, slide_num)
+                            cloudinary_url, cloudinary_id = upload_to_cloudinary(filepath, country_code, mode,
+                                                                                 slide_num)
 
                         yield filepath, slide_num, cloudinary_url
                         success = True
                         break
 
                 if not success:
-                    log(f"   ❌ Failed to capture slide {slide_num} after 4 attempts")
+                    log(f"   ❌ Failed to capture unique version of slide {slide_num} after 4 attempts")
 
         except Exception as e:
             log(f"❌ Error: {str(e)}")
         finally:
             log("🔒 Closing browser.")
             browser.close()
-
 
 
 # --- STREAMLIT UI ---
