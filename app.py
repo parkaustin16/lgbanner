@@ -280,7 +280,7 @@ def find_hero_carousel(page, log_callback=None):
     excluded_wrappers = ".c-notification-banner, .l-cookie-teaser, .c-membership-popup"
 
     hero_selectors = [
-        ".cmp-carousel"
+        ".cmp-carousel",
         "main .cmp-carousel",
         ".main-content .cmp-carousel",
         ".hero-section .cmp-carousel",
@@ -509,7 +509,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                                 if (inds[idx]) inds[idx].click();
                             }}
                         }}
-                    """, i)
+                    """,hero_carousel, i)
 
                     # 2. Hard wait for visual stability (Reduced to 1s because transitions are disabled)
                     time.sleep(1.0)
