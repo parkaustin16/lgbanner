@@ -418,7 +418,6 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
         if log_callback:
             log_callback(message)
 
-    # Resolution Boost: High DPR for sharp images
     size = {'width': 1920, 'height': 720} if mode == 'desktop' else {'width': 360, 'height': 640}
     session_folder_name = f"{country_code}_{mode}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     session_path = os.path.join(UPLOAD_FOLDER, session_folder_name)
@@ -426,70 +425,75 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
     with sync_playwright() as p:
         log("🚀 Launching browser...")
-        # 1. ADD BASIC EVASION ARGS (No external scripts)
         browser = p.chromium.launch(
             headless=True,
             args=[
                 "--no-sandbox",
-                "--disable-blink-features=AutomationControlled", # Hides 'navigator.webdriver' flag
+                "--disable-blink-features=AutomationControlled", 
                 "--disable-gpu"
             ]
         )
-
-        # 2. SET REAL USER AGENT (Critical for LG.com)
-        # Without this, LG sees "HeadlessChrome" and blocks the content
+        
+        # Real User-Agent is critical
         user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         
-        context = browser.new_context(
-            viewport=size, 
-            device_scale_factor=2,
-            user_agent=user_agent 
-        )
+        context = browser.new_context(viewport=size, device_scale_factor=2, user_agent=user_agent)
         page = context.new_page()
-
-        # Block chat bots to speed up load
-        page.route("**/*", lambda r: r.abort() if any(x in r.request.url.lower() for x in ["genesys", "liveperson", "chatbot"]) else r.continue_())
 
         try:
             log(f"🌐 Navigating to {url}...")
-            # Use domcontentloaded + explicit wait (more reliable than networkidle for heavy sites)
+            # Use domcontentloaded to avoid hanging on tracking scripts
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
-
-            try:
-                # Quick cookie handler
-                if page.locator("#onetrust-accept-btn-handler").is_visible():
-                    page.locator("#onetrust-accept-btn-handler").click()
-                    time.sleep(1)
-            except: pass
-
-            # --- CRITICAL SELECTOR FIX ---
-            # We look for a carousel that SPECIFICALLY contains a hero banner.
-            # This ignores the notification carousel and works regardless of the parent container.
-            hero_selector = ".cmp-carousel:has(.c-hero-banner)"
             
-            log("🔍 Waiting for Hero Carousel...")
-            try:
-                # Wait for the element to be attached to the DOM
-                page.wait_for_selector(hero_selector, state="attached", timeout=30000)
-                hero_carousel = page.locator(hero_selector).first
-                hero_carousel.scroll_into_view_if_needed()
-                log("✅ Found Hero Carousel")
-            except Exception as e:
-                # Debugging: Take a screenshot if we fail to see what the bot sees
-                log(f"❌ Hero carousel not found. Saving debug screenshot...")
-                page.screenshot(path=os.path.join(session_path, "debug_failed_view.jpg"))
+            # 1. DIAGNOSTIC: Check if we are blocked
+            page_title = page.title()
+            log(f"📄 Page Title: {page_title}")
+            if "Access Denied" in page_title or "Human" in page_title:
+                log("⛔ BLOCKED by firewall. Try running locally or using a proxy.")
+                page.screenshot(path=os.path.join(session_path, "debug_blocked.jpg"))
                 return
 
-            # Ensure slides are loaded
+            # 2. STRATEGY: Find the Banner DIRECTLY, then find its parent Carousel
+            log("🔍 Looking for .c-hero-banner directly...")
+            
             try:
-                page.wait_for_selector(f"{hero_selector} .cmp-carousel__indicator", timeout=5000)
-            except:
-                log("⚠️ No indicators found, proceeding anyway...")
+                # Wait specifically for the banner image/content
+                page.wait_for_selector(".c-hero-banner", timeout=15000)
+                log("✅ Found .c-hero-banner element!")
+                
+                # Locate the specific banner instance
+                banner = page.locator(".c-hero-banner").first
+                
+                # Traverse UP to find the nearest Swiper/Carousel wrapper
+                # We look for the closest ancestor that is a carousel
+                hero_carousel = banner.locator("xpath=ancestor::div[contains(@class, 'cmp-carousel')][1]")
+                
+                if hero_carousel.count() > 0:
+                    log("✅ Resolved parent Carousel from Banner")
+                else:
+                    log("⚠️ Banner found, but parent carousel selector failed. Using generic fallback.")
+                    hero_carousel = page.locator(".cmp-carousel").first
+                    
+            except Exception as e:
+                log(f"⚠️ Direct banner lookup failed: {e}")
+                log("   Trying generic .cmp-carousel fallback...")
+                try:
+                    page.wait_for_selector(".cmp-carousel", timeout=10000)
+                    hero_carousel = page.locator(".cmp-carousel").first
+                    log("✅ Found generic carousel")
+                except:
+                    log("❌ No carousels found at all. Saving debug screenshot.")
+                    page.screenshot(path=os.path.join(session_path, "debug_no_content.jpg"))
+                    return
 
-            # Use generic locator to count slides
-            indicators = page.locator(f"{hero_selector} .cmp-carousel__indicator").all()
+            # Scroll into view to force lazy-loading
+            hero_carousel.scroll_into_view_if_needed()
+            time.sleep(1) # Settling time
+
+            # Get indicators
+            indicators = hero_carousel.locator(".cmp-carousel__indicator").all()
             num_slides = len(indicators)
-            log(f"📸 Found {num_slides} Hero slides")
+            log(f"📸 Found {num_slides} slides")
 
             captured_sigs = []
 
@@ -500,39 +504,38 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                 for attempt in range(3):
                     log(f"   Capturing slide {slide_num} (Attempt {attempt + 1})...")
                     
-                    # Robust JS Navigation
-                    page.evaluate(f"""(i) => {{
-                        const car = document.querySelector('{hero_selector}');
-                        if (car && car.swiper) {{
-                            car.swiper.autoplay.stop();
-                            car.swiper.params.speed = 0;
-                            car.swiper.slideToLoop(i, 0);
-                            car.swiper.update();
-                        }} else {{
-                            const inds = document.querySelectorAll('{hero_selector} .cmp-carousel__indicator');
-                            if(inds[i]) inds[i].click();
-                        }}
-                    }}""", i)
-                    
-                    time.sleep(2.0) # Wait for render
-                    apply_clean_styles(page) # Your existing cleanup function
-                    
-                    # Target the ACTIVE slide specifically
-                    target_selector = f"{hero_selector} .swiper-slide-active"
+                    # Navigation: Try clicking if Swiper object isn't found
+                    try:
+                        # Attempt JS Navigation
+                        page.evaluate("""(i) => {
+                            const banner = document.querySelector('.c-hero-banner');
+                            const car = banner ? banner.closest('.cmp-carousel') : document.querySelector('.cmp-carousel');
+                            
+                            if (car && car.swiper) {
+                                car.swiper.autoplay.stop();
+                                car.swiper.slideToLoop(i, 0);
+                            } else {
+                                const btn = car.querySelectorAll('.cmp-carousel__indicator')[i];
+                                if (btn) btn.click();
+                            }
+                        }""", i)
+                    except:
+                        # Fallback: Click the indicator using Playwright
+                        try:
+                            indicators[i].click()
+                        except: pass
+
+                    time.sleep(2.0)
+                    apply_clean_styles(page)
                     
                     filename = f"{country_code}_{mode}_hero_{slide_num}.jpg"
                     filepath = os.path.join(session_path, filename)
                     
                     try:
-                        # Check if active slide exists, otherwise shot whole carousel
-                        if page.locator(target_selector).count() > 0:
-                            page.locator(target_selector).first.screenshot(path=filepath, scale="device", quality=95)
-                        else:
-                            page.locator(hero_selector).first.screenshot(path=filepath, scale="device", quality=95)
-
+                        # Just screenshot the whole carousel to be safe
+                        hero_carousel.screenshot(path=filepath, scale="device", quality=95)
                         log(f"✅ Captured: {filename}")
                         
-                        # Upload logic
                         c_url = None
                         if upload_to_cloud:
                              c_url, _ = upload_to_cloudinary(filepath, country_code, mode, slide_num)
@@ -548,9 +551,9 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                     log(f"   ❌ Failed to capture slide {slide_num}")
 
         except Exception as e:
-            log(f"❌ Critical Error: {str(e)}")
+            log(f"❌ Error: {str(e)}")
             try:
-                page.screenshot(path=os.path.join(session_path, "debug_critical_error.jpg"))
+                page.screenshot(path=os.path.join(session_path, "debug_crash.jpg"))
             except: pass
         finally:
             log("🔒 Closing browser.")
