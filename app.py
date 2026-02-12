@@ -266,152 +266,56 @@ def apply_clean_styles(page_obj):
 
 
 def find_hero_carousel(page, log_callback=None):
-    """
-    Intelligently identify the FIRST/MAIN hero banner carousel on LG.com pages.
-    Filters out notification banners and other non-hero carousels.
-    """
-
+    """Find the MAIN hero banner carousel, excluding navigation/product carousels."""
     def log(message):
         if log_callback:
             log_callback(message)
 
     log("🔍 Detecting hero carousel...")
 
-    excluded_wrappers = ".c-notification-banner, .l-cookie-teaser, .c-membership-popup"
-
-    hero_selectors = [
-        ".cmp-carousel",
-        "main .cmp-carousel",
-        ".main-content .cmp-carousel",
-        ".hero-section .cmp-carousel",
-        ".c-hero-section .cmp-carousel",
-        "[class*='hero'] .cmp-carousel",
-        ".content .cmp-carousel",
-        "section .cmp-carousel",
-    ]
-
-    hero_carousel = None
-    for selector in hero_selectors:
-        try:
-            elements = page.query_selector_all(selector)
-            for element in elements:
-                is_in_excluded = element.evaluate(f"el => !!el.closest('{excluded_wrappers}')")
-                if is_in_excluded:
+    # Strategy 1: Try to find carousel with .c-hero-banner children (most reliable)
+    try:
+        # Look for carousel containing hero banner content
+        all_carousels = page.query_selector_all(".cmp-carousel")
+        log(f"   Found {len(all_carousels)} total .cmp-carousel elements")
+        
+        for idx, carousel in enumerate(all_carousels):
+            try:
+                # Skip if in navigation/header
+                is_in_nav = carousel.evaluate("el => !!el.closest('header, nav, .c-header, .ui-gnb, .ui-gnb-banner')")
+                if is_in_nav:
+                    log(f"   Carousel {idx}: SKIPPED (in navigation)")
                     continue
-
-                indicators = element.query_selector_all(".cmp-carousel__indicator")
-                if len(indicators) > 0:
-                    bbox = element.bounding_box()
-                    if bbox and bbox['height'] >= 300:
-                        log(f"✅ Found hero carousel using: {selector}")
-                        hero_carousel = element
-                        break
-            if hero_carousel:
-                break
-        except Exception:
-            continue
-
-    if not hero_carousel:
-        log("⚠️ Could not find hero carousel with specific selectors, using advanced scoring...")
-        try:
-            all_carousels = page.query_selector_all(".cmp-carousel")
-            candidates = []
-            viewport_size = page.viewport_size
-            viewport_width = viewport_size['width'] if viewport_size else 1280
-
-            for idx, carousel in enumerate(all_carousels):
-                is_in_excluded = carousel.evaluate(f"el => !!el.closest('{excluded_wrappers}')")
-                if is_in_excluded:
-                    log(f"   Carousel {idx}: SKIPPED (inside {excluded_wrappers})")
-                    continue
-
+                
+                # Must have indicators
                 indicators = carousel.query_selector_all(".cmp-carousel__indicator")
                 if len(indicators) == 0:
+                    log(f"   Carousel {idx}: SKIPPED (no indicators)")
                     continue
-
+                
+                # Must be large enough
                 bbox = carousel.bounding_box()
-                if not bbox:
+                if not bbox or bbox['height'] < 250:
+                    log(f"   Carousel {idx}: SKIPPED (too small: {bbox['height'] if bbox else 'no bbox'}px)")
                     continue
-
-                if bbox['height'] < 200:
-                    log(f"   Carousel {idx}: SKIPPED (too short: {bbox['height']:.0f}px)")
-                    continue
-
-                if bbox['width'] < viewport_width * 0.5:
-                    log(f"   Carousel {idx}: SKIPPED (too narrow: {bbox['width']:.0f}px)")
-                    continue
-
-                has_hero_banner = carousel.query_selector(".c-hero-banner") is not None
-                has_hero_image = carousel.query_selector(".c-image__item, .cmp-image") is not None
-
-                try:
-                    carousel_text = carousel.inner_text().lower()
-                    notification_keywords = [
-                        'cookie', 'クッキー', 'プライバシー', 'privacy', 'notice',
-                        'お知らせ', '利用規約', '特定商取引', 'オンラインショップ',
-                        'terms', 'conditions', '規約', '改正'
-                    ]
-                    if any(keyword in carousel_text for keyword in notification_keywords):
-                        log(f"   Carousel {idx}: SKIPPED (notification/legal content detected)")
-                        continue
-                except:
-                    pass
-
-                score = 0
-                if has_hero_banner:
-                    score += 100
-                if has_hero_image:
-                    score += 50
-
-                area = bbox['width'] * bbox['height']
-                if area > 500000:
-                    score += 30
-
-                if bbox['height'] > 400:
-                    score += 50
-                elif bbox['height'] > 300:
-                    score += 30
-                elif bbox['height'] > 200:
-                    score += 10
-
-                if 100 < bbox['y'] < 600:
-                    score += 25
-                elif 50 < bbox['y'] < 100:
-                    score -= 20
-                elif bbox['y'] < 50:
-                    score -= 100
-
-                if bbox['width'] > viewport_width * 0.9:
-                    score += 20
-                elif bbox['width'] > viewport_width * 0.8:
-                    score += 15
-
-                candidates.append({
-                    'carousel': carousel,
-                    'score': score,
-                    'position': bbox['y'],
-                    'height': bbox['height'],
-                    'size': area,
-                    'has_hero': has_hero_banner,
-                    'index': idx
-                })
-
-                log(f"   Carousel {idx}: score={score}, pos={bbox['y']:.0f}px, height={bbox['height']:.0f}px, size={area:.0f}, hero={has_hero_banner}")
-
-            if candidates:
-                candidates.sort(key=lambda x: x['score'], reverse=True)
-                best = candidates[0]
-
-                if best['score'] > 0:
-                    hero_carousel = best['carousel']
-                    log(f"✅ Selected carousel {best['index']} (score: {best['score']})")
+                
+                # Check if it contains hero banner content
+                has_hero = carousel.query_selector(".c-hero-banner, .c-floating-contents") is not None
+                
+                if has_hero:
+                    log(f"✅ Found hero carousel {idx} with {len(indicators)} indicators (height: {bbox['height']:.0f}px)")
+                    return carousel
                 else:
-                    log(f"❌ No suitable carousel found (best score: {best['score']})")
-
-        except Exception as e:
-            log(f"❌ Error in advanced detection: {str(e)}")
-
-    return hero_carousel
+                    log(f"   Carousel {idx}: Has indicators but no hero content")
+                    
+            except Exception as e:
+                log(f"   Carousel {idx}: Error checking - {e}")
+                continue
+    except Exception as e:
+        log(f"❌ Error in carousel detection: {e}")
+    
+    log("❌ Could not find hero carousel")
+    return None
 
 
 def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, upload_to_cloud=False):
@@ -455,21 +359,40 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
         try:
             log(f"🌐 Navigating to {url}...")
-            # SPEED FIX: Use domcontentloaded for faster start
-            page.goto(url, wait_until="domcontentloaded", timeout=90000)
+            # Use networkidle to wait for dynamic content
+            page.goto(url, wait_until="networkidle", timeout=90000)
 
             try:
                 accept_btn = page.locator("#onetrust-accept-btn-handler")
                 if accept_btn.is_visible(timeout=5000):
                     log("🍪 Accepting cookies...")
                     accept_btn.click()
-                    # Shortened wait after cookie acceptance
-                    time.sleep(0.5)
+                    time.sleep(1.5)
             except:
                 pass
 
-            # FIXED: Single selector string, reduced timeout
-            page.wait_for_selector(".cmp-carousel", timeout=15000)
+            # Wait for carousel with multiple strategies
+            log("⏳ Waiting for carousel to load...")
+            carousel_found = False
+            
+            try:
+                page.wait_for_selector(".cmp-carousel", timeout=10000)
+                carousel_found = True
+                log("✅ Carousel detected")
+            except:
+                log("⚠️ Carousel wait timed out")
+            
+            if not carousel_found:
+                try:
+                    page.wait_for_selector(".c-hero-banner", timeout=10000)
+                    carousel_found = True
+                    log("✅ Hero banner detected")
+                except:
+                    log("❌ No carousel or hero banner found")
+                    return
+
+            # Additional wait for JS initialization
+            time.sleep(2)
 
             hero_carousel = find_hero_carousel(page, log_callback)
 
@@ -489,30 +412,35 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                 success = False
 
                 # ATTEMPT LOOP: Handles mobile snapping/duplicates
-                for attempt in range(4):  # Increased to 4 attempts for tricky sites
+                for attempt in range(4):
                     log(f"   Capturing slide {slide_num} (Attempt {attempt + 1})...")
 
-                    # FIXED: Pass hero_carousel element handle to JS
-                    hero_carousel.evaluate("""
-                        (carouselEl, idx) => {
-                            const car = carouselEl;
-                            if (car.swiper) {
-                                car.swiper.autoplay.stop();
-                                car.swiper.params.speed = 0;
-                                if (typeof car.swiper.slideToLoop === 'function') {
-                                    car.swiper.slideToLoop(idx);
+                    # 1. Force the swiper state & stop autoplay via JS
+                    try:
+                        hero_carousel.evaluate("""
+                            (carouselEl, idx) => {
+                                const car = carouselEl;
+                                if (car.swiper) {
+                                    car.swiper.autoplay.stop();
+                                    car.swiper.params.speed = 0;
+                                    if (typeof car.swiper.slideToLoop === 'function') {
+                                        car.swiper.slideToLoop(idx);
+                                    } else {
+                                        car.swiper.slideTo(idx);
+                                    }
                                 } else {
-                                    car.swiper.slideTo(idx);
+                                    const inds = car.querySelectorAll('.cmp-carousel__indicator');
+                                    if (inds[idx]) inds[idx].click();
                                 }
-                            } else {
-                                const inds = car.querySelectorAll('.cmp-carousel__indicator');
-                                if (inds[idx]) inds[idx].click();
                             }
-                        }
-                    """, i)
+                        """, i)
+                    except Exception as nav_error:
+                        log(f"   ⚠️ Navigation error: {nav_error}")
+                        time.sleep(0.5)
+                        continue
 
-                    # 2. Hard wait for visual stability (Reduced to 1s because transitions are disabled)
-                    time.sleep(1.0)
+                    # 2. Wait for visual stability
+                    time.sleep(1.5)
 
                     # 3. Apply styles for clean capture
                     apply_clean_styles(page)
@@ -529,7 +457,6 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                             const text = active.innerText.trim().substring(0, 80);
                             const currentIdx = active.getAttribute('data-swiper-slide-index');
 
-                            // FORCE A REFLOW to fix sub-pixel blur before return
                             active.offsetHeight; 
 
                             return {
@@ -559,7 +486,6 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                     except:
                         active_slide_selector = ".cmp-carousel__item.swiper-slide-active"
 
-                    # SPEED FIX: Use JPEG instead of PNG for faster processing
                     filename = f"{country_code}_{mode}_hero_{slide_num}.jpg"
                     filepath = os.path.join(session_path, filename)
 
@@ -576,11 +502,8 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
                     if element:
                         element.scroll_into_view_if_needed()
-                        # Shortened wait for settling
                         time.sleep(0.2)
 
-                        # Use scale='device' for the screenshot to respect our DPR 2.0
-                        # SPEED FIX: Save as JPEG to reduce file size and encoding time
                         element.screenshot(path=filepath, scale="device", type="jpeg", quality=95)
                         captured_signatures.append(current_sig)
                         log(f"✅ Captured: {filename}")
@@ -602,6 +525,8 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
         except Exception as e:
             log(f"❌ Error: {str(e)}")
+            import traceback
+            log(f"   Traceback: {traceback.format_exc()}")
         finally:
             log("🔒 Closing browser.")
             browser.close()
@@ -761,7 +686,7 @@ def main():
             captured_files = []
             cloudinary_urls = []
             
-            st.subheader(f"Results: {site.upper()} ({mode})")
+            st.subheader(f"Results: {site.UPPER()} ({mode})")
             cols = st.columns(3)
             
             for idx, result in enumerate(capture_hero_banners(url, site, mode, log_callback=add_log, upload_to_cloud=upload_enabled)):
