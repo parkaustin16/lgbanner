@@ -4,7 +4,6 @@ import zipfile
 import io
 import sys
 import asyncio
-import random
 from datetime import datetime
 import streamlit as st
 import cloudinary
@@ -15,9 +14,12 @@ import os
 
 
 # Check if chromium is installed, if not, install it
+# Check if chromium and fonts are installed, if not, install them
 @st.cache_resource
 def install_playwright_browsers():
     try:
+        # We no longer run apt-get here because packages.txt handles it
+        # Just install the Playwright chromium binary
         subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
     except Exception as e:
         st.error(f"Error installing playwright: {e}")
@@ -25,13 +27,13 @@ def install_playwright_browsers():
 
 # Call the function
 install_playwright_browsers()
-
 # Load environment variables from .env file if it exists
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except ImportError:
-    pass
+    pass  # dotenv not installed, will use system env variables
 
 # Windows-specific fix for Python 3.13 + Playwright subprocess error
 if sys.platform == 'win32':
@@ -44,6 +46,7 @@ UPLOAD_FOLDER = 'static/captures'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 
+# Helper function to get config from Streamlit secrets or environment variables
 def get_config(key, default=None):
     """Get configuration from Streamlit secrets first, then environment variables."""
     try:
@@ -87,16 +90,21 @@ st.set_page_config(page_title="Banner Capture", layout="wide")
 def upload_to_cloudinary(file_path, country_code, mode, slide_num):
     """Upload image to Cloudinary and return the URL."""
     if not all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]):
-        st.warning("⚠️ Cloudinary credentials not configured.")
+        st.warning("⚠️ Cloudinary credentials not configured. Please set them in .env file or Streamlit secrets.")
         return None, None
 
     try:
         import hashlib
+        import base64
 
+        # Generate timestamp
         timestamp = int(time.time())
+
+        # Prepare upload parameters
         folder_name = f"lg_banners/{country_code}/{mode}"
         public_id = f"{country_code}_{mode}_hero_{slide_num}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
+        # Method 1: Try using cloudinary SDK with proper config
         try:
             response = cloudinary.uploader.upload(
                 file_path,
@@ -108,8 +116,10 @@ def upload_to_cloudinary(file_path, country_code, mode, slide_num):
             )
             return response.get('secure_url'), response.get('public_id')
         except Exception as sdk_error:
+            # Method 2: Fallback to direct API call with proper signature
             import requests
 
+            # Create signature for authentication
             params_to_sign = f"folder={folder_name}&public_id={public_id}&timestamp={timestamp}{CLOUDINARY_API_SECRET}"
             signature = hashlib.sha1(params_to_sign.encode('utf-8')).hexdigest()
 
@@ -141,17 +151,20 @@ def upload_to_cloudinary(file_path, country_code, mode, slide_num):
 def save_to_airtable(country_code, mode, urls, full_country_name):
     """Save all capture URLs to a single Airtable record."""
     if not all([AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME]):
-        st.warning("⚠️ Airtable credentials not configured.")
+        st.warning("⚠️ Airtable credentials not configured. Please set them in .env file or Streamlit secrets.")
         return None
 
     try:
+        # Determine banner type and record name
         banner_type_label = "hero-banner-pc" if mode.lower() == "desktop" else "hero-banner-mo"
         mode_suffix = "pc" if mode.lower() == "desktop" else "mobile"
         record_name = f"{country_code.lower()}-hero-banner-{mode_suffix}-gp1"
         capture_date = datetime.now().strftime('%m/%d/%Y')
         
+        # Format the URLs as a single string (newline separated)
         url_text = ", ".join(urls)
 
+        # Method 1: Try using pyairtable with SSL fix
         try:
             api = Api(AIRTABLE_API_KEY)
             table = api.table(AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME)
@@ -168,6 +181,7 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
             return created_record['id']
 
         except Exception as pyairtable_error:
+            # Method 2: Fallback to direct requests API call
             import requests
 
             url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
@@ -198,7 +212,7 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
         return None
 
 
-# --- CORE CAPTURE LOGIC ---
+# --- CORE CAPTURE LOGIC (Enhanced with Hero Detection) ---
 
 def apply_clean_styles(page_obj):
     """Comprehensive CSS cleanup with Sharpening and Speed fixes."""
@@ -217,6 +231,7 @@ def apply_clean_styles(page_obj):
         .open-button, .js-video-pause, .js-video-play, [aria-label*="Pausar"], [aria-label*="video"]
             { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
 
+            /* SPEED: Disable transitions for instant navigation */
             *, *::before, *::after {
                 transition-duration: 0s !important;
                 animation-duration: 0s !important;
@@ -224,6 +239,7 @@ def apply_clean_styles(page_obj):
                 animation-delay: 0s !important;
             }
 
+            /* Sharpness Fixes: Disable smoothing that causes blur during screenshots */
             .cmp-carousel__item, .c-hero-banner, img {
                 image-rendering: -webkit-optimize-contrast !important;
                 image-rendering: crisp-edges !important;
@@ -244,12 +260,16 @@ def apply_clean_styles(page_obj):
             document.querySelectorAll(s).forEach(el => el.style.setProperty('opacity', '0', 'important'));
         });
 
+        // Pause videos immediately to prevent motion blur
         document.querySelectorAll('video').forEach(v => v.pause());
     """)
 
 
 def find_hero_carousel(page, log_callback=None):
-    """Intelligently identify the FIRST/MAIN hero banner carousel on LG.com pages."""
+    """
+    Intelligently identify the FIRST/MAIN hero banner carousel on LG.com pages.
+    Filters out notification banners and other non-hero carousels.
+    """
 
     def log(message):
         if log_callback:
@@ -398,6 +418,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
         if log_callback:
             log_callback(message)
 
+    # Resolution Boost: We set a high device_pixel_ratio to avoid blurriness
     size: ViewportSize = {'width': 1920, 'height': 720} if mode == 'desktop' else {'width': 360, 'height': 480}
 
     session_folder_name = f"{country_code}_{mode}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -412,11 +433,11 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
-                "--disable-blink-features=AutomationControlled",
                 "--disable-gpu"
             ]
         )
 
+        # USE DPR 2.0 FOR SHARPER CAPTURES
         context = browser.new_context(viewport=size, device_scale_factor=2)
         page = context.new_page()
 
@@ -433,279 +454,153 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
         try:
             log(f"🌐 Navigating to {url}...")
-            time.sleep(random.uniform(0.5, 1.5))
-            
-            # Use networkidle and longer timeout
-            page.goto(url, wait_until="networkidle", timeout=90000)
-            
-            # NEW: More flexible carousel initialization detection
-            log("⏳ Waiting for carousel to initialize...")
-            
-            # Try multiple detection methods
-            carousel_ready = False
-            
-            # Method 1: Wait for swiper-initialized class
-            try:
-                page.wait_for_selector('.cmp-carousel.swiper-initialized', timeout=8000)
-                log("✅ Swiper initialized (method 1)")
-                carousel_ready = True
-            except:
-                log("⚠️ Swiper-initialized class not found, trying alternative methods...")
-            
-            # Method 2: Check if swiper object exists
-            if not carousel_ready:
-                try:
-                    has_swiper = page.evaluate("""
-                        () => {
-                            const carousel = document.querySelector('.cmp-carousel');
-                            return carousel && carousel.swiper ? true : false;
-                        }
-                    """)
-                    if has_swiper:
-                        log("✅ Swiper object detected (method 2)")
-                        carousel_ready = True
-                except:
-                    pass
-            
-            # Method 3: Wait for carousel content to be visible
-            if not carousel_ready:
-                try:
-                    page.wait_for_selector('.cmp-carousel .swiper-wrapper', timeout=5000)
-                    log("✅ Carousel wrapper found (method 3)")
-                    carousel_ready = True
-                except:
-                    pass
-            
-            # Method 4: Just wait longer
-            if not carousel_ready:
-                log("⏳ Using fallback wait time...")
-                time.sleep(5)
-                carousel_ready = True
-            
-            # Additional settling time
-            time.sleep(2)
-            
-            # Simulate human behavior
-            page.mouse.move(random.randint(100, 300), random.randint(100, 300))
-            time.sleep(random.uniform(0.3, 0.7))
+            # SPEED FIX: Use domcontentloaded for faster start
+            page.goto(url, wait_until="domcontentloaded", timeout=90000)
 
-            # Cookie handling
             try:
                 accept_btn = page.locator("#onetrust-accept-btn-handler")
-                if accept_btn.is_visible(timeout=3000):
+                if accept_btn.is_visible(timeout=5000):
                     log("🍪 Accepting cookies...")
-                    time.sleep(random.uniform(0.3, 0.7))
                     accept_btn.click()
-                    time.sleep(random.uniform(1.0, 1.5))
+                    # Shortened wait after cookie acceptance
+                    time.sleep(0.5)
             except:
                 pass
 
-            # Wait for carousel to be present (using multiple selectors)
-            log("🔍 Looking for carousel...")
-            carousel_found = False
-            carousel_selectors = [
-                "main .cmp-carousel",
-                ".main .cmp-carousel",
-                "#contents .cmp-carousel",
-                ".cmp-carousel"
-            ]
-            
-            for selector in carousel_selectors:
-                try:
-                    page.wait_for_selector(selector, timeout=5000)
-                    log(f"✅ Found carousel with: {selector}")
-                    carousel_found = True
-                    break
-                except:
-                    continue
-            
-            if not carousel_found:
-                log("❌ No carousel found with any selector")
-                page.screenshot(path=os.path.join(session_path, "debug_no_carousel.png"))
-                return
+            page.wait_for_selector("main .cmp-carousel, .main .cmp-carousel, #contents .cmp-carousel", timeout=30000)
 
             hero_carousel = find_hero_carousel(page, log_callback)
 
             if not hero_carousel:
                 log("❌ Could not identify hero carousel")
-                page.screenshot(path=os.path.join(session_path, "debug_carousel_detection_failed.png"))
                 return
-
-            # Check if swiper is available before using it
-            has_swiper = page.evaluate("""
-                () => {
-                    const carousel = document.querySelector('.cmp-carousel');
-                    return carousel && carousel.swiper ? true : false;
-                }
-            """)
-            
-            if has_swiper:
-                log("✅ Swiper API available for navigation")
-            else:
-                log("⚠️ No Swiper API - will use indicator clicks")
 
             indicators = list(hero_carousel.query_selector_all(".cmp-carousel__indicator"))
             num_slides = len(indicators)
             log(f"📸 Found {num_slides} indicators in carousel.")
 
-            if num_slides == 0:
-                log("❌ No indicators found in carousel")
-                return
-
+            # TRACKER: To prevent capturing the same banner twice
             captured_signatures = []
 
             for i in range(num_slides):
                 slide_num = i + 1
                 success = False
 
-                for attempt in range(4):
+                # ATTEMPT LOOP: Handles mobile snapping/duplicates
+                for attempt in range(4):  # Increased to 4 attempts for tricky sites
                     log(f"   Capturing slide {slide_num} (Attempt {attempt + 1})...")
-                    
-                    time.sleep(random.uniform(1.0, 1.5))
 
-                    # Enhanced slide navigation with better error handling
-                    try:
-                        page.evaluate(f"""
-                            (idx) => {{
-                                const car = document.querySelector('.cmp-carousel');
-                                if (car && car.swiper) {{
-                                    // Using Swiper API
-                                    if (car.swiper.autoplay && car.swiper.autoplay.stop) {{
-                                        car.swiper.autoplay.stop();
-                                    }}
-                                    
-                                    car.swiper.params.speed = 0;
-                                    car.swiper.params.autoplay = false;
-                                    
-                                    if (typeof car.swiper.slideToLoop === 'function') {{
-                                        car.swiper.slideToLoop(idx, 0);
-                                    }} else {{
-                                        car.swiper.slideTo(idx, 0);
-                                    }}
-                                    
-                                    if (car.swiper.update) {{
-                                        car.swiper.update();
-                                    }}
+                    # 1. Force the swiper state & stop autoplay via JS
+                    page.evaluate(f"""
+                        (idx) => {{
+                            const car = document.querySelector('.cmp-carousel');
+                            if (car && car.swiper) {{
+                                car.swiper.autoplay.stop();
+                                // Force zero speed for instant jump to avoid animation blur
+                                car.swiper.params.speed = 0;
+                                if (typeof car.swiper.slideToLoop === 'function') {{
+                                    car.swiper.slideToLoop(idx);
                                 }} else {{
-                                    // Fallback: click indicator
-                                    const inds = document.querySelectorAll('.cmp-carousel__indicator');
-                                    if (inds[idx]) {{
-                                        inds[idx].click();
-                                    }}
+                                    car.swiper.slideTo(idx);
                                 }}
+                            }} else {{
+                                const inds = document.querySelectorAll('.cmp-carousel__indicator');
+                                if (inds[idx]) inds[idx].click();
                             }}
-                        """, i)
-                    except Exception as nav_error:
-                        log(f"   ⚠️ Navigation error: {str(nav_error)[:50]}")
-                        # Fallback: try clicking the indicator directly
-                        try:
-                            if i < len(indicators):
-                                indicators[i].click()
-                        except:
-                            pass
+                        }}
+                    """, i)
 
-                    # Wait for slide transition
-                    time.sleep(2.5)
+                    # 2. Hard wait for visual stability (Reduced to 1s because transitions are disabled)
+                    time.sleep(1.0)
 
+                    # 3. Apply styles for clean capture
                     apply_clean_styles(page)
 
-                    # Check current slide
-                    try:
-                        signature_data = page.evaluate(f"""
-                            (targetIdx) => {{
-                                const active = document.querySelector('.swiper-slide-active');
-                                
-                                if (!active) return {{ sig: "null", match: false }};
+                    # 4. Detect "Current Slide Signature" to verify uniqueness
+                    signature_data = page.evaluate(f"""
+                        (targetIdx) => {{
+                            const active = document.querySelector(`.swiper-slide-active[data-swiper-slide-index="${{targetIdx}}"]`) 
+                                           || document.querySelector('.swiper-slide-active');
 
-                                const img = active.querySelector('img');
-                                const text = active.innerText.trim().substring(0, 80);
-                                const currentIdx = active.getAttribute('data-swiper-slide-index');
+                            if (!active) return {{ sig: "null", match: false }};
 
-                                active.offsetHeight; 
+                            const img = active.querySelector('img');
+                            const text = active.innerText.trim().substring(0, 80);
+                            const currentIdx = active.getAttribute('data-swiper-slide-index');
 
-                                return {{
-                                    sig: (img ? img.src : 'no-img') + "|" + text,
-                                    match: String(currentIdx) === String(targetIdx)
-                                }};
-                            }}
-                        """, i)
-                    except Exception as eval_error:
-                        log(f"   ⚠️ Evaluation error: {str(eval_error)[:50]}")
-                        signature_data = {'sig': f'attempt_{attempt}', 'match': True}
+                            // FORCE A REFLOW to fix sub-pixel blur before return
+                            active.offsetHeight; 
+
+                            return {{
+                                sig: (img ? img.src : 'no-img') + "|" + text,
+                                match: currentIdx == targetIdx
+                            }};
+                        }}
+                    """, i)
 
                     current_sig = signature_data['sig']
                     is_correct_index = signature_data['match']
 
                     if current_sig in captured_signatures and attempt < 3:
-                        log(f"   ⚠️ Duplicate detected. Retrying...")
-                        time.sleep(1.0)
+                        log(f"   ⚠️ Duplicate detected. Retrying navigation...")
+                        time.sleep(0.5)
                         continue
 
                     if not is_correct_index and attempt < 3:
-                        log(f"   ⚠️ Index mismatch. Retrying...")
-                        time.sleep(1.0)
+                        log(f"   ⚠️ Swiper active index mismatch. Retrying...")
+                        time.sleep(0.5)
                         continue
 
-                    # Find and capture the active slide
+                    # 5. Capture Logic
+                    active_slide_selector = f".cmp-carousel__item.swiper-slide-active[data-swiper-slide-index='{i}']"
+                    try:
+                        page.wait_for_selector(active_slide_selector, timeout=2000)
+                    except:
+                        active_slide_selector = ".cmp-carousel__item.swiper-slide-active"
+
+                    # SPEED FIX: Use JPEG instead of PNG for faster processing
                     filename = f"{country_code}_{mode}_hero_{slide_num}.jpg"
                     filepath = os.path.join(session_path, filename)
 
                     element = None
                     banner_selectors = [
-                        f".swiper-slide-active[data-swiper-slide-index='{i}'] .c-hero-banner",
-                        ".swiper-slide-active .c-hero-banner",
-                        f".swiper-slide-active[data-swiper-slide-index='{i}'] .cmp-image",
-                        ".swiper-slide-active .cmp-image",
-                        f".swiper-slide-active[data-swiper-slide-index='{i}']",
-                        ".swiper-slide-active"
+                        f"{active_slide_selector} .c-hero-banner",
+                        f"{active_slide_selector} .cmp-image",
+                        active_slide_selector
                     ]
 
                     for selector in banner_selectors:
-                        try:
-                            element = page.query_selector(selector)
-                            if element:
-                                bbox = element.bounding_box()
-                                if bbox and bbox['height'] > 100:
-                                    break
-                        except:
-                            continue
+                        element = page.query_selector(selector)
+                        if element: break
 
                     if element:
-                        try:
-                            element.scroll_into_view_if_needed()
-                            time.sleep(0.5)
+                        element.scroll_into_view_if_needed()
+                        # Shortened wait for settling
+                        time.sleep(0.2)
 
-                            element.screenshot(path=filepath, scale="device", type="jpeg", quality=95)
-                            captured_signatures.append(current_sig)
-                            log(f"✅ Captured: {filename}")
+                        # Use scale='device' for the screenshot to respect our DPR 2.0
+                        # SPEED FIX: Save as JPEG to reduce file size and encoding time
+                        element.screenshot(path=filepath, scale="device", type="jpeg", quality=95)
+                        captured_signatures.append(current_sig)
+                        log(f"✅ Captured: {filename}")
 
-                            cloudinary_url = None
-                            if upload_to_cloud:
-                                log(f"☁️ Uploading to Cloud...")
-                                cloudinary_url, _ = upload_to_cloudinary(filepath, country_code, mode, slide_num)
+                        cloudinary_url = None
+                        cloudinary_id = None
 
-                            yield filepath, slide_num, cloudinary_url
-                            success = True
-                            break
-                        except Exception as screenshot_error:
-                            log(f"   ⚠️ Screenshot error: {str(screenshot_error)[:50]}")
-                    else:
-                        log(f"   ⚠️ Could not find active slide element")
+                        if upload_to_cloud:
+                            log(f"☁️ Uploading to Cloud...")
+                            cloudinary_url, cloudinary_id = upload_to_cloudinary(filepath, country_code, mode,
+                                                                                 slide_num)
+
+                        yield filepath, slide_num, cloudinary_url
+                        success = True
+                        break
 
                 if not success:
-                    log(f"   ❌ Failed to capture slide {slide_num} after 4 attempts")
-                    # Save debug screenshot
-                    try:
-                        page.screenshot(path=os.path.join(session_path, f"debug_slide_{slide_num}_failed.png"))
-                    except:
-                        pass
+                    log(f"   ❌ Failed to capture unique version of slide {slide_num} after 4 attempts")
 
         except Exception as e:
             log(f"❌ Error: {str(e)}")
-            try:
-                page.screenshot(path=os.path.join(session_path, "debug_error.png"))
-            except:
-                pass
         finally:
             log("🔒 Closing browser.")
             browser.close()
@@ -714,9 +609,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 # --- STREAMLIT UI ---
 
 def main():
-    st.title("LG Hero Banner Capture (Fixed Feb 2026)")
-    
-    st.info("🔧 **Updated** - Fixed for LG.com carousel initialization changes")
+    st.title("LG Hero Banner Capture")
 
     with st.expander("⚙️ Configuration Status", expanded=False):
         cloudinary_configured = all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET])
@@ -735,6 +628,7 @@ def main():
         if st.button("🔍 Test Airtable Connection"):
             try:
                 import requests
+                # 1. READ TEST
                 read_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
                 headers = {"Authorization": f"Bearer {AIRTABLE_API_KEY}"}
                 read_response = requests.get(read_url, headers=headers, verify=False)
@@ -742,6 +636,7 @@ def main():
                 if read_response.status_code == 200:
                     st.success("✅ READ access works!")
 
+                    # 2. WRITE TEST (Functional check without the info text)
                     write_data = {
                         "fields": {
                             "country": "Australia",
@@ -753,6 +648,7 @@ def main():
 
                     if write_response.status_code == 200:
                         st.success("✅ WRITE access works!")
+                        # Cleanup test record
                         record_id = write_response.json().get('id')
                         requests.delete(f"{read_url}/{record_id}", headers=headers, verify=False)
                     else:
@@ -764,6 +660,7 @@ def main():
 
         st.divider()
 
+        # Regional Groups Definition
         regions = {
             "Asia": [
                 ("au", "Australia (AU)"), ("jp", "Japan (JP)"), ("hk", "Hong Kong (HK)"), ("tw", "Taiwan (TW)"),
@@ -796,12 +693,15 @@ def main():
         for r_list in regions.values():
             all_subs.extend(r_list)
 
+        # Build Dropdown Options
+        # Options will be: Region Name, All Subsidiaries, or Individual Country Name
         country_labels = ["All Subsidiaries", "Asia", "Europe", "LATAM", "MEA", "Canada"]
         
+        # Add individual countries (sorted)
         individual_sorted = sorted(all_subs, key=lambda x: x[1])
         country_labels.extend([label for _, label in individual_sorted])
 
-        selected_option = st.selectbox("Subsidiary/Region", options=country_labels, index=0)
+        selected_option = st.selectbox("Subsidiary/Region", options=country_labels, index=0) # Default to All Subsidiaries
         mode = st.selectbox("View Mode", options=["desktop", "mobile"])
 
         st.divider()
@@ -813,6 +713,7 @@ def main():
         st.divider()
         run_btn = st.button("Start Capture", type="primary", use_container_width=True)
         
+        # Stop Capture Button replaces "Run All Subsidiaries"
         if st.button("Stop Capture", use_container_width=True):
             st.session_state.stop_requested = True
             st.warning("Stop requested. Will exit after current country finishes.")
@@ -825,21 +726,25 @@ def main():
         msg = f"`{datetime.now().strftime('%H:%M:%S')}` {message}"
         st.session_state.log_messages.append(msg)
         
+        # Keep only the last 50 logs to prevent memory/app reset issues
         if len(st.session_state.log_messages) > 50:
             st.session_state.log_messages = st.session_state.log_messages[-50:]
             
-        log_placeholder.markdown("\\n\\n".join(st.session_state.log_messages[::-1]))
+        log_placeholder.markdown("\n\n".join(st.session_state.log_messages[::-1]))
 
+    # Logic for Capture
     if run_btn:
         st.session_state.log_messages = []
         st.session_state.stop_requested = False
         
+        # Determine the queue based on selection
         capture_queue = []
         if selected_option == "All Subsidiaries":
             capture_queue = all_subs
         elif selected_option in regions:
             capture_queue = regions[selected_option]
         else:
+            # It's an individual country
             selected_code = next(code for code, label in all_subs if label == selected_option)
             capture_queue = [(selected_code, selected_option)]
 
@@ -847,6 +752,7 @@ def main():
         
         progress_bar = st.progress(0)
         
+        # Single view for results if only 1 country, otherwise just show logs
         if len(capture_queue) == 1:
             site, label = capture_queue[0]
             country_full_name = label.split(" (")[0]
@@ -881,6 +787,7 @@ def main():
                                    mime="application/zip", use_container_width=True)
                 st.success(f"✅ Capture complete! {len(captured_files)} images saved.")
         else:
+            # Batch process
             for i, (c_code, c_label) in enumerate(capture_queue):
                 if st.session_state.stop_requested:
                     add_log("🛑 Capture process stopped by user.")
@@ -900,6 +807,7 @@ def main():
                 if upload_enabled and cloudinary_urls:
                     save_to_airtable(c_code, mode, cloudinary_urls, c_full_name)
                 
+                # Manual memory cleanup after each country
                 import gc
                 gc.collect()
                 
