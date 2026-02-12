@@ -468,7 +468,8 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             except:
                 pass
 
-            page.wait_for_selector(".cmp-carousel, main .cmp-carousel, .main .cmp-carousel, #contents .cmp-carousel", timeout=30000)
+            # FIXED: Single selector string, reduced timeout
+            page.wait_for_selector(".cmp-carousel", timeout=15000)
 
             hero_carousel = find_hero_carousel(page, log_callback)
 
@@ -491,25 +492,24 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                 for attempt in range(4):  # Increased to 4 attempts for tricky sites
                     log(f"   Capturing slide {slide_num} (Attempt {attempt + 1})...")
 
-                    # 1. Force the swiper state & stop autoplay via JS
-                    page.evaluate(f"""
-                        (idx) => {{
-                            const car = document.querySelector('.cmp-carousel');
-                            if (car && car.swiper) {{
+                    # FIXED: Pass hero_carousel element handle to JS
+                    hero_carousel.evaluate("""
+                        (carouselEl, idx) => {
+                            const car = carouselEl;
+                            if (car.swiper) {
                                 car.swiper.autoplay.stop();
-                                // Force zero speed for instant jump to avoid animation blur
                                 car.swiper.params.speed = 0;
-                                if (typeof car.swiper.slideToLoop === 'function') {{
+                                if (typeof car.swiper.slideToLoop === 'function') {
                                     car.swiper.slideToLoop(idx);
-                                }} else {{
+                                } else {
                                     car.swiper.slideTo(idx);
-                                }}
-                            }} else {{
-                                const inds = document.querySelectorAll('.cmp-carousel__indicator');
+                                }
+                            } else {
+                                const inds = car.querySelectorAll('.cmp-carousel__indicator');
                                 if (inds[idx]) inds[idx].click();
-                            }}
-                        }}
-                    """,hero_carousel, i)
+                            }
+                        }
+                    """, i)
 
                     # 2. Hard wait for visual stability (Reduced to 1s because transitions are disabled)
                     time.sleep(1.0)
@@ -518,12 +518,12 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                     apply_clean_styles(page)
 
                     # 4. Detect "Current Slide Signature" to verify uniqueness
-                    signature_data = page.evaluate(f"""
-                        (targetIdx) => {{
-                            const active = document.querySelector(`.swiper-slide-active[data-swiper-slide-index="${{targetIdx}}"]`) 
+                    signature_data = page.evaluate("""
+                        (targetIdx) => {
+                            const active = document.querySelector(`.swiper-slide-active[data-swiper-slide-index="${targetIdx}"]`) 
                                            || document.querySelector('.swiper-slide-active');
 
-                            if (!active) return {{ sig: "null", match: false }};
+                            if (!active) return { sig: "null", match: false };
 
                             const img = active.querySelector('img');
                             const text = active.innerText.trim().substring(0, 80);
@@ -532,11 +532,11 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                             // FORCE A REFLOW to fix sub-pixel blur before return
                             active.offsetHeight; 
 
-                            return {{
+                            return {
                                 sig: (img ? img.src : 'no-img') + "|" + text,
                                 match: currentIdx == targetIdx
-                            }};
-                        }}
+                            };
+                        }
                     """, i)
 
                     current_sig = signature_data['sig']
@@ -731,7 +731,7 @@ def main():
         if len(st.session_state.log_messages) > 50:
             st.session_state.log_messages = st.session_state.log_messages[-50:]
             
-        log_placeholder.markdown("\n\n".join(st.session_state.log_messages[::-1]))
+        log_placeholder.markdown("\\n\\n".join(st.session_state.log_messages[::-1]))
 
     # Logic for Capture
     if run_btn:
