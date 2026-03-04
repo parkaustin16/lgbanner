@@ -17,7 +17,7 @@ libxshmfence1
 fonts-noto-cjk
 fonts-noto-color-emoji
 fonts-thai-tlwg
-fonts-kacst
+fonts-kacst-one
 fonts-freefont-ttf
 fonts-liberation
 libgbm1
