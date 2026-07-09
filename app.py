@@ -748,7 +748,7 @@ def main():
                 ("fr", "France (FR)"), ("de", "Germany (DE)"), ("it", "Italy (IT)"),
                 ("es", "Spain (ES)"), ("nl", "Netherlands (NL)"), ("cz", "Czech Republic (CZ)"),
                 ("se", "Sweden (SE)"), ("pt", "Portugal (PT)"), ("hu", "Hungary (HU)"),
-                ("pl", "Poland (PL)"), ("at", "Austria (AT)"), ("be", "Belgium NL (BE)"), ("be_fr", "Belgium FR (BE_FR)")
+                ("pl", "Poland (PL)"), ("at", "Austria (AT)"), ("be", "Belgium NL (be)"), ("be_fr", "Belgium FR (be_fr)")
             ],
             "LATAM": [
                 ("mx", "Mexico (MX)"), ("br", "Brazil (BR)"), ("ar", "Argentina (AR)"), ("cl", "Chile (CL)"),
@@ -770,7 +770,7 @@ def main():
 
         # Build Dropdown Options
         # Options will be: Region Name, All Subsidiaries, or Individual Country Name
-        country_labels = ["All Subsidiaries", "Asia", "Europe", "LATAM", "MEA", "Canada"]
+        country_labels = ["All Subsidiaries"] + list(regions.keys())
         
         # Add individual countries (sorted)
         individual_sorted = sorted(all_subs, key=lambda x: x[1])
