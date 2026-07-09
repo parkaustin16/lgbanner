@@ -771,10 +771,19 @@ def main():
         # Build Dropdown Options
         # Options will be: Region Name, All Subsidiaries, or Individual Country Name
         country_labels = ["All Subsidiaries"] + list(regions.keys())
-        
+
         # Add individual countries (sorted)
         individual_sorted = sorted(all_subs, key=lambda x: x[1])
         country_labels.extend([label for _, label in individual_sorted])
+
+        # Ensure Belgium options are always visible in the dropdown.
+        required_labels = ["Belgium NL (be)", "Belgium FR (be_fr)"]
+        for required_label in required_labels:
+            if required_label not in country_labels:
+                country_labels.append(required_label)
+
+        # Remove duplicates while preserving order.
+        country_labels = list(dict.fromkeys(country_labels))
 
         selected_option = st.selectbox("Subsidiary/Region", options=country_labels, index=0) # Default to All Subsidiaries
         mode = st.selectbox("View Mode", options=["desktop", "mobile"])
