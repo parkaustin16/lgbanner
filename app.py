@@ -748,7 +748,7 @@ def main():
                 ("fr", "France (FR)"), ("de", "Germany (DE)"), ("it", "Italy (IT)"),
                 ("es", "Spain (ES)"), ("nl", "Netherlands (NL)"), ("cz", "Czech Republic (CZ)"),
                 ("se", "Sweden (SE)"), ("pt", "Portugal (PT)"), ("hu", "Hungary (HU)"),
-                ("pl", "Poland (PL)"), ("at", "Austria (AT)"), ("be", "Belgium NL (BE_NL)"), ("be_fr", "Belgium FR (BE_FR)")
+                ("pl", "Poland (PL)"), ("at", "Austria (AT)"), ("be", "Belgium NL (BE)"), ("be_fr", "Belgium FR (BE_FR)")
             ],
             "LATAM": [
                 ("mx", "Mexico (MX)"), ("br", "Brazil (BR)"), ("ar", "Argentina (AR)"), ("cl", "Chile (CL)"),
