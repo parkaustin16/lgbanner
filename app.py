@@ -533,13 +533,8 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                     log("❌ Could not identify hero carousel")
                     return
 
-            indicators = list(hero_carousel.query_selector_all(".cmp-carousel__indicator"))
-            num_slides = len(indicators)
-            log(f"📸 Found {num_slides} indicators in carousel.")
-
-            # Mark the exact carousel selected by find_hero_carousel().
-            # Do not re-query the first .cmp-carousel later, because some LG pages
-            # render multiple desktop/mobile or hidden carousel instances.
+            # Mark the exact carousel selected above. All later queries are scoped
+            # to this element so hidden desktop/mobile carousels cannot interfere.
             carousel_token = f"capture-{country_code}-{mode}-{int(time.time() * 1000)}"
             hero_carousel.evaluate(
                 "(el, token) => el.setAttribute('data-capture-carousel', token)",
@@ -547,179 +542,256 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             )
             carousel_selector = f'[data-capture-carousel="{carousel_token}"]'
 
-            # TRACKER: Prevent accidentally saving the same rendered banner twice.
+            # IMPORTANT: Count only indicators owned by this carousel. A normal
+            # querySelectorAll() can also collect indicators from nested carousels,
+            # producing an index that never matches the hero Swiper.
+            setup = page.evaluate(
+                """
+                ({ selector }) => {
+                    const car = document.querySelector(selector);
+                    if (!car) return { count: 0, swiperFound: false, mappings: [] };
+
+                    const ownedIndicators = [...car.querySelectorAll('.cmp-carousel__indicator')]
+                        .filter((el) => el.closest('.cmp-carousel') === car);
+
+                    // Some implementations attach the Swiper instance to a nested
+                    // .swiper element rather than to .cmp-carousel itself.
+                    const possibleHosts = [
+                        car,
+                        ...car.querySelectorAll('.swiper, .swiper-container, [class*="swiper"]')
+                    ];
+                    const swiperHost = possibleHosts.find((el) => el && el.swiper) || null;
+                    if (swiperHost) swiperHost.setAttribute('data-capture-swiper-host', 'true');
+
+                    const mappings = ownedIndicators.map((indicator, idx) => {
+                        indicator.setAttribute('data-capture-indicator-index', String(idx));
+                        const controls = indicator.getAttribute('aria-controls');
+                        return {
+                            idx,
+                            controls,
+                            text: (indicator.textContent || '').trim(),
+                        };
+                    });
+
+                    return {
+                        count: ownedIndicators.length,
+                        swiperFound: !!swiperHost,
+                        mappings,
+                    };
+                }
+                """,
+                {"selector": carousel_selector},
+            )
+
+            num_slides = int(setup.get("count", 0))
+            if num_slides == 0:
+                log("❌ No indicators owned by the selected hero carousel")
+                return
+
+            log(
+                f"📸 Found {num_slides} hero indicators "
+                f"(Swiper instance: {'yes' if setup.get('swiperFound') else 'no'})."
+            )
+
             captured_signatures = set()
 
             for i in range(num_slides):
                 slide_num = i + 1
                 success = False
 
-                # ATTEMPT LOOP: Handles delayed loopFix, lazy images and responsive carousels.
                 for attempt in range(4):
                     log(f"   Capturing slide {slide_num} (Attempt {attempt + 1})...")
 
-                    # 1. Move the exact Swiper instance selected above.
-                    move_result = page.evaluate(
-                        """
-                        ({ selector, targetIdx }) => {
-                            const car = document.querySelector(selector);
-                            if (!car) {
-                                return { ok: false, reason: 'carousel-not-found' };
-                            }
-
-                            const swiper = car.swiper;
-                            if (swiper) {
-                                if (swiper.autoplay && typeof swiper.autoplay.stop === 'function') {
-                                    swiper.autoplay.stop();
-                                }
-
-                                swiper.params.speed = 0;
-                                swiper.update();
-
-                                // targetIdx is a logical slide index. In loop mode, use
-                                // slideToLoop() and later verify swiper.realIndex.
-                                if (swiper.params.loop && typeof swiper.slideToLoop === 'function') {
-                                    swiper.slideToLoop(targetIdx, 0, true);
-                                } else {
-                                    swiper.slideTo(targetIdx, 0, true);
-                                }
-
-                                swiper.updateProgress();
-                                swiper.updateSlidesClasses();
-                                return { ok: true, mode: 'swiper' };
-                            }
-
-                            // Non-Swiper fallback.
-                            const indicators = car.querySelectorAll('.cmp-carousel__indicator');
-                            if (!indicators[targetIdx]) {
-                                return { ok: false, reason: 'indicator-not-found' };
-                            }
-                            indicators[targetIdx].click();
-                            return { ok: true, mode: 'indicator' };
-                        }
-                        """,
-                        {"selector": carousel_selector, "targetIdx": i},
+                    indicator = page.locator(
+                        f'{carousel_selector} '
+                        f'[data-capture-indicator-index="{i}"]'
                     )
 
-                    if not move_result.get("ok"):
-                        log(f"⚠️ Could not move carousel: {move_result.get('reason')}. Retrying...")
+                    if indicator.count() == 0:
+                        log("⚠️ Target indicator disappeared. Retrying...")
                         time.sleep(0.5)
                         continue
 
-                    # 2. Wait for the logical slide index instead of comparing
-                    # activeIndex/data-swiper-slide-index, which can include loop clones.
+                    # Stop autoplay, but do not use activeIndex/realIndex as the
+                    # source of truth. LG pages can use loop clones, nested Swipers,
+                    # or custom index offsets. The indicator itself is authoritative.
+                    page.evaluate(
+                        """
+                        ({ selector }) => {
+                            const car = document.querySelector(selector);
+                            if (!car) return;
+                            const host = car.querySelector('[data-capture-swiper-host="true"]')
+                                || (car.swiper ? car : null);
+                            const swiper = host && host.swiper;
+                            if (!swiper) return;
+                            if (swiper.autoplay && typeof swiper.autoplay.stop === 'function') {
+                                swiper.autoplay.stop();
+                            }
+                            swiper.params.speed = 0;
+                        }
+                        """,
+                        {"selector": carousel_selector},
+                    )
+
+                    try:
+                        indicator.click(force=True, timeout=3000)
+                    except Exception:
+                        # DOM-click fallback for overlays or unusual button markup.
+                        page.evaluate(
+                            """
+                            ({ selector, targetIdx }) => {
+                                const car = document.querySelector(selector);
+                                const ind = car && car.querySelector(
+                                    `[data-capture-indicator-index="${targetIdx}"]`
+                                );
+                                if (ind) ind.click();
+                            }
+                            """,
+                            {"selector": carousel_selector, "targetIdx": i},
+                        )
+
+                    # Wait until the requested indicator becomes active. This avoids
+                    # comparing Swiper's internal indexes, which caused the mismatch.
                     try:
                         page.wait_for_function(
                             """
                             ({ selector, targetIdx }) => {
                                 const car = document.querySelector(selector);
                                 if (!car) return false;
+                                const ind = car.querySelector(
+                                    `[data-capture-indicator-index="${targetIdx}"]`
+                                );
+                                if (!ind) return false;
 
-                                const swiper = car.swiper;
-                                if (swiper) {
-                                    return Number(swiper.realIndex) === Number(targetIdx)
-                                        && !swiper.animating;
-                                }
+                                const activeByClass =
+                                    ind.classList.contains('cmp-carousel__indicator--active') ||
+                                    ind.classList.contains('swiper-pagination-bullet-active') ||
+                                    ind.classList.contains('active') ||
+                                    ind.closest('li')?.classList.contains('active');
 
-                                const indicator = car.querySelectorAll('.cmp-carousel__indicator')[targetIdx];
-                                if (!indicator) return false;
-                                return indicator.classList.contains('cmp-carousel__indicator--active')
-                                    || indicator.getAttribute('aria-selected') === 'true'
-                                    || indicator.getAttribute('aria-current') === 'true';
+                                const activeByAria =
+                                    ind.getAttribute('aria-selected') === 'true' ||
+                                    ind.getAttribute('aria-current') === 'true';
+
+                                const controls = ind.getAttribute('aria-controls');
+                                const panel = controls ? document.getElementById(controls) : null;
+                                const panelActive = panel && (
+                                    panel.getAttribute('aria-hidden') === 'false' ||
+                                    panel.classList.contains('swiper-slide-active') ||
+                                    panel.classList.contains('cmp-carousel__item--active') ||
+                                    panel.classList.contains('active')
+                                );
+
+                                return !!(activeByClass || activeByAria || panelActive);
                             }
                             """,
                             arg={"selector": carousel_selector, "targetIdx": i},
-                            timeout=6000,
+                            timeout=7000,
                             polling=100,
                         )
                     except Exception:
-                        state = page.evaluate(
+                        # Fallback: call the actual nested Swiper only after indicator
+                        # navigation failed. Still do not reject based on its index.
+                        page.evaluate(
                             """
-                            ({ selector }) => {
+                            ({ selector, targetIdx }) => {
                                 const car = document.querySelector(selector);
-                                const swiper = car && car.swiper;
-                                return {
-                                    realIndex: swiper ? swiper.realIndex : null,
-                                    activeIndex: swiper ? swiper.activeIndex : null,
-                                    animating: swiper ? swiper.animating : null,
-                                };
+                                if (!car) return;
+                                const host = car.querySelector('[data-capture-swiper-host="true"]')
+                                    || (car.swiper ? car : null);
+                                const swiper = host && host.swiper;
+                                if (!swiper) return;
+
+                                if (swiper.params.loop && typeof swiper.slideToLoop === 'function') {
+                                    swiper.slideToLoop(targetIdx, 0, false);
+                                } else if (typeof swiper.slideTo === 'function') {
+                                    swiper.slideTo(targetIdx, 0, false);
+                                }
+                                if (typeof swiper.updateSlidesClasses === 'function') {
+                                    swiper.updateSlidesClasses();
+                                }
                             }
                             """,
-                            {"selector": carousel_selector},
+                            {"selector": carousel_selector, "targetIdx": i},
                         )
-                        log(
-                            "⚠️ Swiper realIndex did not settle "
-                            f"(target={i}, realIndex={state.get('realIndex')}, "
-                            f"activeIndex={state.get('activeIndex')}). Retrying..."
-                        )
-                        continue
+                        time.sleep(0.8)
 
-                    # 3. Apply clean styles only after navigation has settled.
                     apply_clean_styles(page)
 
-                    # 4. Read the currently active slide from the same carousel.
+                    # Locate an active slide owned by this carousel only. Filtering
+                    # with closest('.cmp-carousel') excludes nested carousel slides.
                     state = page.evaluate(
                         """
-                        ({ selector }) => {
+                        ({ selector, targetIdx }) => {
                             const car = document.querySelector(selector);
                             if (!car) return null;
 
-                            const swiper = car.swiper;
-                            const active = car.querySelector('.swiper-slide-active')
-                                || car.querySelector('.cmp-carousel__item--active')
-                                || car.querySelector('.cmp-carousel__item[aria-hidden="false"]');
+                            const ownedSlides = [...car.querySelectorAll(
+                                '.swiper-slide, .cmp-carousel__item'
+                            )].filter((el) => el.closest('.cmp-carousel') === car);
+
+                            const indicator = car.querySelector(
+                                `[data-capture-indicator-index="${targetIdx}"]`
+                            );
+                            const controls = indicator && indicator.getAttribute('aria-controls');
+                            const controlled = controls ? document.getElementById(controls) : null;
+
+                            let active = ownedSlides.find((el) =>
+                                el.classList.contains('swiper-slide-active') ||
+                                el.classList.contains('cmp-carousel__item--active') ||
+                                el.getAttribute('aria-hidden') === 'false'
+                            );
+
+                            // Prefer the explicitly controlled panel when it is visible.
+                            if (controlled && ownedSlides.includes(controlled)) {
+                                const r = controlled.getBoundingClientRect();
+                                const visible = r.width > 0 && r.height > 0 &&
+                                    getComputedStyle(controlled).display !== 'none' &&
+                                    getComputedStyle(controlled).visibility !== 'hidden';
+                                if (visible) active = controlled;
+                            }
 
                             if (!active) return null;
 
-                            const img = active.querySelector('img');
-                            const picture = active.querySelector('picture source');
+                            active.setAttribute('data-capture-active-slide', 'true');
                             const hero = active.querySelector('.c-hero-banner') || active;
+                            const img = hero.querySelector('img');
+                            const source = hero.querySelector('picture source');
                             const bg = getComputedStyle(hero).backgroundImage;
-                            const text = (active.innerText || '').trim().replace(/\\s+/g, ' ').substring(0, 120);
-
-                            // Force layout before screenshot.
-                            void active.offsetHeight;
+                            const text = (hero.innerText || '')
+                                .trim().replace(/\\s+/g, ' ').substring(0, 160);
+                            const rect = hero.getBoundingClientRect();
+                            void hero.offsetHeight;
 
                             return {
-                                realIndex: swiper ? Number(swiper.realIndex) : null,
-                                activeIndex: swiper ? Number(swiper.activeIndex) : null,
                                 signature: [
                                     img ? (img.currentSrc || img.src) : 'no-img',
-                                    picture ? picture.srcset : 'no-source',
+                                    source ? source.srcset : 'no-source',
                                     bg || 'no-bg',
                                     text,
                                 ].join('|'),
+                                width: rect.width,
+                                height: rect.height,
+                                controls,
                             };
                         }
                         """,
-                        {"selector": carousel_selector},
+                        {"selector": carousel_selector, "targetIdx": i},
                     )
 
-                    if not state:
-                        log("⚠️ Active slide not found. Retrying...")
-                        continue
-
-                    if state.get("realIndex") is not None and state["realIndex"] != i:
-                        log(
-                            "⚠️ Swiper realIndex mismatch "
-                            f"(target={i}, realIndex={state['realIndex']}, "
-                            f"activeIndex={state.get('activeIndex')}). Retrying..."
-                        )
+                    if not state or state.get("width", 0) < 10 or state.get("height", 0) < 10:
+                        log("⚠️ Active hero slide was not visible. Retrying...")
                         continue
 
                     current_sig = state["signature"]
                     if current_sig in captured_signatures:
-                        log("⚠️ Duplicate rendered slide detected. Retrying...")
+                        log("⚠️ Same rendered banner detected. Retrying navigation...")
                         time.sleep(0.5)
                         continue
 
-                    # 5. Capture the active slide from the marked carousel only.
                     active_slide = page.locator(
-                        f"{carousel_selector} .swiper-slide-active, "
-                        f"{carousel_selector} .cmp-carousel__item--active, "
-                        f"{carousel_selector} .cmp-carousel__item[aria-hidden='false']"
-                    ).first
-
+                        f'{carousel_selector} [data-capture-active-slide="true"]'
+                    ).last
                     try:
                         active_slide.wait_for(state="visible", timeout=3000)
                     except Exception:
@@ -736,7 +808,6 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
                     element.scroll_into_view_if_needed()
 
-                    # Wait for images in the active banner to finish decoding.
                     try:
                         element.evaluate(
                             """
