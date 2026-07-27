@@ -537,139 +537,252 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             num_slides = len(indicators)
             log(f"📸 Found {num_slides} indicators in carousel.")
 
-            # TRACKER: To prevent capturing the same banner twice
-            captured_signatures = []
+            # Mark the exact carousel selected by find_hero_carousel().
+            # Do not re-query the first .cmp-carousel later, because some LG pages
+            # render multiple desktop/mobile or hidden carousel instances.
+            carousel_token = f"capture-{country_code}-{mode}-{int(time.time() * 1000)}"
+            hero_carousel.evaluate(
+                "(el, token) => el.setAttribute('data-capture-carousel', token)",
+                carousel_token,
+            )
+            carousel_selector = f'[data-capture-carousel="{carousel_token}"]'
+
+            # TRACKER: Prevent accidentally saving the same rendered banner twice.
+            captured_signatures = set()
 
             for i in range(num_slides):
                 slide_num = i + 1
                 success = False
 
-                # ATTEMPT LOOP: Handles mobile snapping/duplicates
-                for attempt in range(4):  # Increased to 4 attempts for tricky sites
+                # ATTEMPT LOOP: Handles delayed loopFix, lazy images and responsive carousels.
+                for attempt in range(4):
                     log(f"   Capturing slide {slide_num} (Attempt {attempt + 1})...")
 
-                    # 1. Force the swiper state & stop autoplay via JS
-                    # UPDATED to use the specific selector logic to ensure we target the right swiper
-                    page.evaluate(f"""
-                        (idx) => {{
-                            // Try specific hero carousel first
-                            let car = document.querySelector('.cmp-carousel:has(.c-hero-banner)');
-                            if (!car) car = document.querySelector('.cmp-carousel');
-                            if (car && car.swiper) {
-    car.swiper.autoplay.stop();
+                    # 1. Move the exact Swiper instance selected above.
+                    move_result = page.evaluate(
+                        """
+                        ({ selector, targetIdx }) => {
+                            const car = document.querySelector(selector);
+                            if (!car) {
+                                return { ok: false, reason: 'carousel-not-found' };
+                            }
 
-    // Force zero speed for instant jump to avoid animation blur
-    car.swiper.params.speed = 0;
+                            const swiper = car.swiper;
+                            if (swiper) {
+                                if (swiper.autoplay && typeof swiper.autoplay.stop === 'function') {
+                                    swiper.autoplay.stop();
+                                }
 
-    if (typeof car.swiper.slideToLoop === 'function') {
-        car.swiper.slideToLoop(idx, 0, false);
-    } else {
-        car.swiper.slideTo(idx, 0, false);
-    }
+                                swiper.params.speed = 0;
+                                swiper.update();
 
-} else {
-    const inds = car.querySelectorAll('.cmp-carousel__indicator');
-    if (inds[idx]) inds[idx].click();
-}
-                            
-                            }}
-                        }}
-                    """, i)
+                                // targetIdx is a logical slide index. In loop mode, use
+                                // slideToLoop() and later verify swiper.realIndex.
+                                if (swiper.params.loop && typeof swiper.slideToLoop === 'function') {
+                                    swiper.slideToLoop(targetIdx, 0, true);
+                                } else {
+                                    swiper.slideTo(targetIdx, 0, true);
+                                }
 
-                    # 2. Hard wait for visual stability (Reduced to 1s because transitions are disabled)
-                    time.sleep(1.0)
+                                swiper.updateProgress();
+                                swiper.updateSlidesClasses();
+                                return { ok: true, mode: 'swiper' };
+                            }
 
-                    # 3. Apply styles for clean capture
+                            // Non-Swiper fallback.
+                            const indicators = car.querySelectorAll('.cmp-carousel__indicator');
+                            if (!indicators[targetIdx]) {
+                                return { ok: false, reason: 'indicator-not-found' };
+                            }
+                            indicators[targetIdx].click();
+                            return { ok: true, mode: 'indicator' };
+                        }
+                        """,
+                        {"selector": carousel_selector, "targetIdx": i},
+                    )
+
+                    if not move_result.get("ok"):
+                        log(f"⚠️ Could not move carousel: {move_result.get('reason')}. Retrying...")
+                        time.sleep(0.5)
+                        continue
+
+                    # 2. Wait for the logical slide index instead of comparing
+                    # activeIndex/data-swiper-slide-index, which can include loop clones.
+                    try:
+                        page.wait_for_function(
+                            """
+                            ({ selector, targetIdx }) => {
+                                const car = document.querySelector(selector);
+                                if (!car) return false;
+
+                                const swiper = car.swiper;
+                                if (swiper) {
+                                    return Number(swiper.realIndex) === Number(targetIdx)
+                                        && !swiper.animating;
+                                }
+
+                                const indicator = car.querySelectorAll('.cmp-carousel__indicator')[targetIdx];
+                                if (!indicator) return false;
+                                return indicator.classList.contains('cmp-carousel__indicator--active')
+                                    || indicator.getAttribute('aria-selected') === 'true'
+                                    || indicator.getAttribute('aria-current') === 'true';
+                            }
+                            """,
+                            arg={"selector": carousel_selector, "targetIdx": i},
+                            timeout=6000,
+                            polling=100,
+                        )
+                    except Exception:
+                        state = page.evaluate(
+                            """
+                            ({ selector }) => {
+                                const car = document.querySelector(selector);
+                                const swiper = car && car.swiper;
+                                return {
+                                    realIndex: swiper ? swiper.realIndex : null,
+                                    activeIndex: swiper ? swiper.activeIndex : null,
+                                    animating: swiper ? swiper.animating : null,
+                                };
+                            }
+                            """,
+                            {"selector": carousel_selector},
+                        )
+                        log(
+                            "⚠️ Swiper realIndex did not settle "
+                            f"(target={i}, realIndex={state.get('realIndex')}, "
+                            f"activeIndex={state.get('activeIndex')}). Retrying..."
+                        )
+                        continue
+
+                    # 3. Apply clean styles only after navigation has settled.
                     apply_clean_styles(page)
 
-                    # 4. Detect "Current Slide Signature" to verify uniqueness
-                    signature_data = page.evaluate(f"""
-                        (targetIdx) => {{
-                            // Use the same robust selector logic
-                            const parent = document.querySelector('.cmp-carousel:has(.c-hero-banner)') || document.querySelector('.cmp-carousel');
-                            
-                            // Find active slide within this parent
-                            const active = parent.querySelector(`.swiper-slide-active[data-swiper-slide-index="${{targetIdx}}"]`) 
-                                           || parent.querySelector('.swiper-slide-active');
+                    # 4. Read the currently active slide from the same carousel.
+                    state = page.evaluate(
+                        """
+                        ({ selector }) => {
+                            const car = document.querySelector(selector);
+                            if (!car) return null;
 
-                            if (!active) return {{ sig: "null", match: false }};
+                            const swiper = car.swiper;
+                            const active = car.querySelector('.swiper-slide-active')
+                                || car.querySelector('.cmp-carousel__item--active')
+                                || car.querySelector('.cmp-carousel__item[aria-hidden="false"]');
+
+                            if (!active) return null;
 
                             const img = active.querySelector('img');
-                            const text = active.innerText.trim().substring(0, 80);
-                            const currentIdx = active.getAttribute('data-swiper-slide-index');
+                            const picture = active.querySelector('picture source');
+                            const hero = active.querySelector('.c-hero-banner') || active;
+                            const bg = getComputedStyle(hero).backgroundImage;
+                            const text = (active.innerText || '').trim().replace(/\\s+/g, ' ').substring(0, 120);
 
-                            // FORCE A REFLOW to fix sub-pixel blur before return
-                            active.offsetHeight; 
+                            // Force layout before screenshot.
+                            void active.offsetHeight;
 
-                            return {{
-                                sig: (img ? img.src : 'no-img') + "|" + text,
-                                match: currentIdx == targetIdx
-                            }};
-                        }}
-                    """, i)
+                            return {
+                                realIndex: swiper ? Number(swiper.realIndex) : null,
+                                activeIndex: swiper ? Number(swiper.activeIndex) : null,
+                                signature: [
+                                    img ? (img.currentSrc || img.src) : 'no-img',
+                                    picture ? picture.srcset : 'no-source',
+                                    bg || 'no-bg',
+                                    text,
+                                ].join('|'),
+                            };
+                        }
+                        """,
+                        {"selector": carousel_selector},
+                    )
 
-                    current_sig = signature_data['sig']
-                    is_correct_index = signature_data['match']
+                    if not state:
+                        log("⚠️ Active slide not found. Retrying...")
+                        continue
 
-                 
+                    if state.get("realIndex") is not None and state["realIndex"] != i:
+                        log(
+                            "⚠️ Swiper realIndex mismatch "
+                            f"(target={i}, realIndex={state['realIndex']}, "
+                            f"activeIndex={state.get('activeIndex')}). Retrying..."
+                        )
+                        continue
 
-                    # Note: We relax the strict index match slightly as some carousels loop oddly
-                 
+                    current_sig = state["signature"]
+                    if current_sig in captured_signatures:
+                        log("⚠️ Duplicate rendered slide detected. Retrying...")
+                        time.sleep(0.5)
+                        continue
 
-                    # 5. Capture Logic
-                    active_slide_selector = f".cmp-carousel:has(.c-hero-banner) .swiper-slide-active[data-swiper-slide-index='{i}']"
-                    
-                    # Fallback selectors if the strict one fails
+                    # 5. Capture the active slide from the marked carousel only.
+                    active_slide = page.locator(
+                        f"{carousel_selector} .swiper-slide-active, "
+                        f"{carousel_selector} .cmp-carousel__item--active, "
+                        f"{carousel_selector} .cmp-carousel__item[aria-hidden='false']"
+                    ).first
+
                     try:
-                        if page.locator(active_slide_selector).count() == 0:
-                             # Try generic active slide in hero carousel
-                             active_slide_selector = ".cmp-carousel:has(.c-hero-banner) .swiper-slide-active"
-                        
-                        page.wait_for_selector(active_slide_selector, timeout=2000)
-                    except:
-                        # Absolute fallback
-                        active_slide_selector = ".cmp-carousel__item.swiper-slide-active"
+                        active_slide.wait_for(state="visible", timeout=3000)
+                    except Exception:
+                        log("⚠️ Active slide is not visible. Retrying...")
+                        continue
 
-                    # SPEED FIX: Use JPEG instead of PNG for faster processing
                     filename = f"{country_code}_{mode}_hero_{slide_num}.jpg"
                     filepath = os.path.join(session_path, filename)
 
-                    element = None
-                    banner_selectors = [
-                        f"{active_slide_selector} .c-hero-banner",
-                        f"{active_slide_selector} .cmp-image",
-                        active_slide_selector
-                    ]
+                    banner = active_slide.locator(".c-hero-banner").first
+                    if banner.count() == 0:
+                        banner = active_slide.locator(".cmp-image").first
+                    element = banner if banner.count() > 0 else active_slide
 
-                    for selector in banner_selectors:
-                        element = page.query_selector(selector)
-                        if element: break
+                    element.scroll_into_view_if_needed()
 
-                    if element:
-                        element.scroll_into_view_if_needed()
-                        # Shortened wait for settling
-                        time.sleep(0.2)
+                    # Wait for images in the active banner to finish decoding.
+                    try:
+                        element.evaluate(
+                            """
+                            async (el) => {
+                                const images = [...el.querySelectorAll('img')];
+                                await Promise.all(images.map(async (img) => {
+                                    if (!img.complete) {
+                                        await new Promise((resolve) => {
+                                            img.addEventListener('load', resolve, { once: true });
+                                            img.addEventListener('error', resolve, { once: true });
+                                        });
+                                    }
+                                    if (img.decode) {
+                                        try { await img.decode(); } catch (_) {}
+                                    }
+                                }));
+                            }
+                            """
+                        )
+                    except Exception:
+                        pass
 
-                        # Use scale='device' for the screenshot to respect our DPR 2.0
-                        # SPEED FIX: Save as JPEG to reduce file size and encoding time
-                        element.screenshot(path=filepath, scale="device", type="jpeg", quality=95)
-                        captured_signatures.append(current_sig)
-                        log(f"✅ Captured: {filename}")
+                    element.screenshot(
+                        path=filepath,
+                        scale="device",
+                        type="jpeg",
+                        quality=95,
+                    )
+                    captured_signatures.add(current_sig)
+                    log(f"✅ Captured: {filename}")
 
-                        cloudinary_url = None
-                        cloudinary_id = None
+                    cloudinary_url = None
+                    cloudinary_id = None
 
-                        if upload_to_cloud:
-                            log(f"☁️ Uploading to Cloud...")
-                            cloudinary_url, cloudinary_id = upload_to_cloudinary(filepath, country_code, mode,
-                                                                                 slide_num)
+                    if upload_to_cloud:
+                        log("☁️ Uploading to Cloud...")
+                        cloudinary_url, cloudinary_id = upload_to_cloudinary(
+                            filepath, country_code, mode, slide_num
+                        )
 
-                        yield filepath, slide_num, cloudinary_url
-                        success = True
-                        break
+                    yield filepath, slide_num, cloudinary_url
+                    success = True
+                    break
 
                 if not success:
-                    log(f"   ❌ Failed to capture unique version of slide {slide_num} after 4 attempts")
+                    log(f"   ❌ Failed to capture slide {slide_num} after 4 attempts")
 
         except Exception as e:
             log(f"❌ Error: {str(e)}")
