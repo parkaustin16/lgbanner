@@ -555,19 +555,23 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                             // Try specific hero carousel first
                             let car = document.querySelector('.cmp-carousel:has(.c-hero-banner)');
                             if (!car) car = document.querySelector('.cmp-carousel');
+                            if (car && car.swiper) {
+    car.swiper.autoplay.stop();
+
+    // Force zero speed for instant jump to avoid animation blur
+    car.swiper.params.speed = 0;
+
+    if (typeof car.swiper.slideToLoop === 'function') {
+        car.swiper.slideToLoop(idx, 0, false);
+    } else {
+        car.swiper.slideTo(idx, 0, false);
+    }
+
+} else {
+    const inds = car.querySelectorAll('.cmp-carousel__indicator');
+    if (inds[idx]) inds[idx].click();
+}
                             
-                            if (car && car.swiper) {{
-                                car.swiper.autoplay.stop();
-                                // Force zero speed for instant jump to avoid animation blur
-                                car.swiper.params.speed = 0;
-                                if (typeof car.swiper.slideToLoop === 'function') {{
-                                    car.swiper.slideToLoop(idx);
-                                }} else {{
-                                    car.swiper.slideTo(idx);
-                                }}
-                            }} else {{
-                                const inds = car.querySelectorAll('.cmp-carousel__indicator');
-                                if (inds[idx]) inds[idx].click();
                             }}
                         }}
                     """, i)
@@ -607,16 +611,10 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                     current_sig = signature_data['sig']
                     is_correct_index = signature_data['match']
 
-                    if current_sig in captured_signatures and attempt < 3:
-                        log(f"   ⚠️ Duplicate detected. Retrying navigation...")
-                        time.sleep(0.5)
-                        continue
+                 
 
                     # Note: We relax the strict index match slightly as some carousels loop oddly
-                    if not is_correct_index and attempt < 2: 
-                        log(f"   ⚠️ Swiper active index mismatch. Retrying...")
-                        time.sleep(0.5)
-                        continue
+                 
 
                     # 5. Capture Logic
                     active_slide_selector = f".cmp-carousel:has(.c-hero-banner) .swiper-slide-active[data-swiper-slide-index='{i}']"
