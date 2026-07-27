@@ -41,6 +41,8 @@ if sys.platform == 'win32':
 
 from playwright.sync_api import sync_playwright, ViewportSize
 
+BUILD_VERSION = "2026-07-27-indicator-v3"
+
 # --- CONFIGURATION ---
 UPLOAD_FOLDER = 'static/captures'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -867,6 +869,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
 def main():
     st.title("LG Hero Banner Capture")
+    st.caption(f"Build: {BUILD_VERSION}")
 
     with st.expander("⚙️ Configuration Status", expanded=False):
         cloudinary_configured = all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET])
@@ -1004,6 +1007,7 @@ def main():
             selected_code = next(code for code, label in all_subs if label == selected_option)
             capture_queue = [(selected_code, selected_option)]
 
+        add_log(f"🧩 Running build **{BUILD_VERSION}**")
         add_log(f"🏁 Starting capture for **{selected_option}** ({len(capture_queue)} sites) in **{mode}** mode...")
         
         progress_bar = st.progress(0)
