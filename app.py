@@ -871,6 +871,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                                 width: rect.width,
                                 height: rect.height,
                                 panelIndex,
+                                activeTarget: target.getBoundingClientRect().width > 0 && target.getBoundingClientRect().height > 0,
                             };
                         }
                         """,
@@ -881,10 +882,52 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                         },
                     )
 
-                    if not state or state.get("width", 0) < 10 or state.get("height", 0) < 10:
+                    if not state:
                         log("⚠️ Target hero panel was not visible. Retrying...")
                         time.sleep(0.4)
                         continue
+
+                    if state.get("activeTarget") is False:
+                        # One more attempt after forcing the target visible in case
+                        # the carousel library re-hid it during relayout.
+                        page.evaluate(
+                            """
+                            ({ selector, panelIndex, targetIdx }) => {
+                                const car = document.querySelector(selector);
+                                if (!car) return;
+                                const target = car.querySelector(`[data-capture-slide-index="${panelIndex}"]`) 
+                                    || [...car.querySelectorAll('[data-capture-slide-index]')][targetIdx];
+                                if (!target) return;
+                                target.style.setProperty('display', 'block', 'important');
+                                target.style.setProperty('visibility', 'visible', 'important');
+                                target.style.setProperty('opacity', '1', 'important');
+                                target.style.setProperty('transform', 'none', 'important');
+                                target.style.setProperty('position', 'relative', 'important');
+                                target.style.setProperty('width', '100%', 'important');
+                                target.style.setProperty('height', 'auto', 'important');
+                            }
+                            """,
+                            {"selector": carousel_selector, "panelIndex": target_panel_index, "targetIdx": i},
+                        )
+                        time.sleep(0.25)
+                        state = page.evaluate(
+                            """
+                            ({ selector, panelIndex, targetIdx }) => {
+                                const car = document.querySelector(selector);
+                                if (!car) return null;
+                                const target = car.querySelector(`[data-capture-slide-index="${panelIndex}"]`) 
+                                    || [...car.querySelectorAll('[data-capture-slide-index]')][targetIdx];
+                                if (!target) return null;
+                                const rect = target.getBoundingClientRect();
+                                return { width: rect.width, height: rect.height };
+                            }
+                            """,
+                            {"selector": carousel_selector, "panelIndex": target_panel_index, "targetIdx": i},
+                        )
+                        if not state or state.get("width", 0) < 10 or state.get("height", 0) < 10:
+                            log("⚠️ Target hero panel was not visible. Retrying...")
+                            time.sleep(0.4)
+                            continue
 
                     active_slide = page.locator(
                         f'{carousel_selector} [data-capture-target-slide="true"]'
