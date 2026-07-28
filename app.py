@@ -537,8 +537,9 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             num_slides = len(indicators)
             log(f"📸 Found {num_slides} indicators in carousel.")
 
-            # TRACKER: To prevent capturing the same banner twice
+            # TRACKER: Keep recent signatures to detect failed navigation without blocking valid repeats.
             captured_signatures = []
+            last_captured_sig = None
 
             for i in range(num_slides):
                 slide_num = i + 1
@@ -565,7 +566,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                                 }} else {{
                                     car.swiper.slideTo(idx);
                                 }}
-                            }} else {{
+                            }} else if (car) {{
                                 const inds = car.querySelectorAll('.cmp-carousel__indicator');
                                 if (inds[idx]) inds[idx].click();
                             }}
@@ -583,6 +584,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                         (targetIdx) => {{
                             // Use the same robust selector logic
                             const parent = document.querySelector('.cmp-carousel:has(.c-hero-banner)') || document.querySelector('.cmp-carousel');
+                            if (!parent) return {{ sig: 'no-parent', match: false }};
                             
                             // Find active slide within this parent
                             const active = parent.querySelector(`.swiper-slide-active[data-swiper-slide-index="${{targetIdx}}"]`) 
@@ -591,6 +593,9 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                             if (!active) return {{ sig: "null", match: false }};
 
                             const img = active.querySelector('img');
+                            const link = active.querySelector('a');
+                            const bgNode = active.querySelector('.cmp-image, .c-hero-banner, .swiper-slide-bg') || active;
+                            const bgStyle = window.getComputedStyle(bgNode).backgroundImage || '';
                             const text = active.innerText.trim().substring(0, 80);
                             const currentIdx = active.getAttribute('data-swiper-slide-index');
 
@@ -598,7 +603,13 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                             active.offsetHeight; 
 
                             return {{
-                                sig: (img ? img.src : 'no-img') + "|" + text,
+                                sig: [
+                                    currentIdx || 'no-idx',
+                                    img ? (img.currentSrc || img.src || 'no-img-src') : 'no-img',
+                                    link ? (link.href || 'no-link') : 'no-link',
+                                    bgStyle,
+                                    text
+                                ].join('|'),
                                 match: currentIdx == targetIdx
                             }};
                         }}
@@ -607,10 +618,18 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                     current_sig = signature_data['sig']
                     is_correct_index = signature_data['match']
 
-                    if current_sig in captured_signatures and attempt < 3:
-                        log(f"   ⚠️ Duplicate detected. Retrying navigation...")
+                    duplicate_any_previous = current_sig in captured_signatures
+                    duplicate_last = current_sig == last_captured_sig
+
+                    # Retry when swiper didn't move and rendered the same banner as the previous successful capture.
+                    if duplicate_last and not is_correct_index and attempt < 3:
+                        log(f"   ⚠️ Same rendered banner detected. Retrying navigation...")
                         time.sleep(0.5)
                         continue
+
+                    # If this matches an older slide but swiper index looks correct, allow capture.
+                    if duplicate_any_previous and is_correct_index:
+                        log(f"   ℹ️ Same signature as another slide, but index matched. Capturing anyway.")
 
                     # Note: We relax the strict index match slightly as some carousels loop oddly
                     if not is_correct_index and attempt < 2: 
@@ -656,6 +675,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                         # SPEED FIX: Save as JPEG to reduce file size and encoding time
                         element.screenshot(path=filepath, scale="device", type="jpeg", quality=95)
                         captured_signatures.append(current_sig)
+                        last_captured_sig = current_sig
                         log(f"✅ Captured: {filename}")
 
                         cloudinary_url = None
