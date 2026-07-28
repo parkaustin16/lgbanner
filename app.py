@@ -554,16 +554,10 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             locale="en-US",
             timezone_id="America/New_York",
             extra_http_headers={
-                "Upgrade-Insecure-Requests": "1",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.9",
                 "Sec-Ch-Ua": '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
                 "Sec-Ch-Ua-Mobile": "?0" if mode == 'desktop' else "?1",
-                "Sec-Ch-Ua-Platform": '"Windows"',
-                "Sec-Fetch-Dest": "document",
-                "Sec-Fetch-Mode": "navigate",
-                "Sec-Fetch-Site": "none",
-                "Sec-Fetch-User": "?1"
+                "Sec-Ch-Ua-Platform": '"Windows"'
             }
         )
         
