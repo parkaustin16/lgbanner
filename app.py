@@ -13,13 +13,105 @@ import subprocess
 import os
 
 
-# Check if chromium is installed, if not, install it
-# Check if chromium and fonts are installed, if not, install them
+# Runtime shared libs required by Playwright Chromium on Debian/Ubuntu.
+PLAYWRIGHT_REQUIRED_LIBS = [
+    "libnss3.so",
+    "libatk-1.0.so.0",
+    "libatk-bridge-2.0.so.0",
+    "libcups.so.2",
+    "libdrm.so.2",
+    "libxkbcommon.so.0",
+    "libXcomposite.so.1",
+    "libXdamage.so.1",
+    "libXrandr.so.2",
+    "libgbm.so.1",
+    "libpango-1.0.so.0",
+    "libcairo.so.2",
+    "libasound.so.2",
+    "libXfixes.so.3",
+    "libX11.so.6",
+    "libxshmfence.so.1",
+]
+
+# apt package hints to satisfy missing shared libraries.
+PLAYWRIGHT_LIB_PACKAGES = {
+    "libnss3.so": ["libnss3"],
+    "libatk-1.0.so.0": ["libatk1.0-0"],
+    "libatk-bridge-2.0.so.0": ["libatk-bridge2.0-0"],
+    "libcups.so.2": ["libcups2", "libcups2t64"],
+    "libdrm.so.2": ["libdrm2"],
+    "libxkbcommon.so.0": ["libxkbcommon0"],
+    "libXcomposite.so.1": ["libxcomposite1"],
+    "libXdamage.so.1": ["libxdamage1"],
+    "libXrandr.so.2": ["libxrandr2"],
+    "libgbm.so.1": ["libgbm1"],
+    "libpango-1.0.so.0": ["libpango-1.0-0"],
+    "libcairo.so.2": ["libcairo2"],
+    "libasound.so.2": ["libasound2", "libasound2t64"],
+    "libXfixes.so.3": ["libxfixes3"],
+    "libX11.so.6": ["libx11-6"],
+    "libxshmfence.so.1": ["libxshmfence1"],
+}
+
+
+def first_available_package(candidates):
+    for package in candidates:
+        result = subprocess.run(["apt-cache", "show", package], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if result.returncode == 0:
+            return package
+    return candidates[0] if candidates else None
+
+
+def get_missing_shared_libs(required_libs):
+    try:
+        cache_output = subprocess.check_output(["ldconfig", "-p"], text=True, stderr=subprocess.DEVNULL)
+    except Exception:
+        # If ldconfig isn't available, return an empty list so we avoid false negatives.
+        return []
+
+    missing = [lib for lib in required_libs if lib not in cache_output]
+    return missing
+
+
+def install_missing_system_packages():
+    missing_libs = get_missing_shared_libs(PLAYWRIGHT_REQUIRED_LIBS)
+    if not missing_libs:
+        return True, []
+
+    packages = []
+    for lib in missing_libs:
+        candidates = PLAYWRIGHT_LIB_PACKAGES.get(lib, [])
+        package = first_available_package(candidates) if candidates else None
+        if package:
+            packages.append(package)
+    packages = sorted(set(packages))
+    if not packages:
+        return False, missing_libs
+
+    installer_prefix = ["sudo", "-n"] if os.geteuid() != 0 else []
+    try:
+        subprocess.run(installer_prefix + ["apt-get", "update"], check=True, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL)
+        subprocess.run(installer_prefix + ["apt-get", "install", "-y", *packages], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True, []
+    except Exception:
+        # Return remaining missing libs so caller can show actionable diagnostics.
+        return False, get_missing_shared_libs(PLAYWRIGHT_REQUIRED_LIBS)
+
+
 @st.cache_resource
 def install_playwright_browsers():
     try:
-        # We no longer run apt-get here because packages.txt handles it
-        # Just install the Playwright chromium binary
+        deps_ok, deps_missing = install_missing_system_packages()
+        if not deps_ok and deps_missing:
+            st.warning(
+                "⚠️ Missing Chromium runtime libraries: "
+                + ", ".join(deps_missing)
+                + ". Please install them via packages.txt or apt-get."
+            )
+
+        # Install Playwright chromium binary
         subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
     except Exception as e:
         st.error(f"Error installing playwright: {e}")
@@ -56,13 +148,13 @@ def get_config(key, default=None):
 
 
 # Cloudinary Configuration
-CLOUDINARY_CLOUD_NAME = st.secrets["CLOUDINARY_HIDDEN_CLOUD_NAME"]
-CLOUDINARY_API_KEY = st.secrets['CLOUDINARY_HIDDEN_API_KEY']
-CLOUDINARY_API_SECRET = st.secrets['CLOUDINARY_HIDDEN_API_SECRET']
+CLOUDINARY_CLOUD_NAME = get_config("CLOUDINARY_HIDDEN_CLOUD_NAME", "")
+CLOUDINARY_API_KEY = get_config("CLOUDINARY_HIDDEN_API_KEY", "")
+CLOUDINARY_API_SECRET = get_config("CLOUDINARY_HIDDEN_API_SECRET", "")
 
 # Airtable Configuration
-AIRTABLE_API_KEY = st.secrets["AIRTABLE_HIDDEN_API_KEY"]
-AIRTABLE_BASE_ID = st.secrets["AIRTABLE_HIDDEN_BASE_ID"]
+AIRTABLE_API_KEY = get_config("AIRTABLE_HIDDEN_API_KEY", "")
+AIRTABLE_BASE_ID = get_config("AIRTABLE_HIDDEN_BASE_ID", "")
 AIRTABLE_TABLE_NAME = "capture"
 
 # Configure Cloudinary only if credentials are available
@@ -431,18 +523,26 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
         log("🚀 Launching browser (Evasion Mode)...")
         
         # --- EVASION PART 1: Launch Args ---
-        browser = p.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-blink-features=AutomationControlled",
-                "--disable-infobars",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--disable-extensions",
-                "--start-maximized"
-            ]
-        )
+        try:
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-infobars",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--disable-extensions",
+                    "--start-maximized"
+                ]
+            )
+        except Exception as launch_error:
+            missing = get_missing_shared_libs(PLAYWRIGHT_REQUIRED_LIBS)
+            if missing:
+                log("❌ Chromium launch failed: missing shared libs -> " + ", ".join(missing))
+            else:
+                log(f"❌ Chromium launch failed: {launch_error}")
+            return
 
         # --- EVASION PART 2: Context & Headers ---
         user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
@@ -544,7 +644,11 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             # Prefer logical slide count from Swiper real indices (handles loop-cloned nodes).
             num_slides = page.evaluate("""
                 (token) => {
-                    const car = document.querySelector(`[data-capture-hero-id="${token}"]`);
+                    let car = document.querySelector(`[data-capture-hero-id="${token}"]`);
+                    if (!car) {
+                        car = document.querySelector('.cmp-carousel:has(.c-hero-banner)')
+                           || document.querySelector('.cmp-carousel');
+                    }
                     if (!car) return 0;
 
                     if (car.swiper && Array.isArray(car.swiper.slides) && car.swiper.slides.length > 0) {
@@ -608,7 +712,11 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                         (payload) => {{
                             const idx = payload.idx;
                             const token = payload.token;
-                            const car = document.querySelector(`[data-capture-hero-id="${{token}}"]`);
+                            let car = document.querySelector(`[data-capture-hero-id="${{token}}"]`);
+                            if (!car) {{
+                                car = document.querySelector('.cmp-carousel:has(.c-hero-banner)')
+                                   || document.querySelector('.cmp-carousel');
+                            }}
                             
                             if (car && car.swiper) {{
                                 // Pause any AEM carousel autoplay control first.
@@ -639,7 +747,11 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                         (payload) => {{
                             const idx = payload.idx;
                             const token = payload.token;
-                            const parent = document.querySelector(`[data-capture-hero-id="${{token}}"]`);
+                            let parent = document.querySelector(`[data-capture-hero-id="${{token}}"]`);
+                            if (!parent) {{
+                                parent = document.querySelector('.cmp-carousel:has(.c-hero-banner)')
+                                      || document.querySelector('.cmp-carousel');
+                            }}
                             if (!parent) return;
                             const slide = parent.querySelector(`.swiper-slide-active[data-swiper-slide-index="${{idx}}"]`)
                                           || parent.querySelector('.swiper-slide-active');
@@ -667,7 +779,11 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                             (payload) => {
                                 const targetIdx = Number(payload.idx);
                                 const token = payload.token;
-                                const parent = document.querySelector(`[data-capture-hero-id="${token}"]`);
+                                let parent = document.querySelector(`[data-capture-hero-id="${token}"]`);
+                                if (!parent) {
+                                    parent = document.querySelector('.cmp-carousel:has(.c-hero-banner)')
+                                          || document.querySelector('.cmp-carousel');
+                                }
                                 if (!parent) return false;
                                 if (parent.swiper && typeof parent.swiper.realIndex === 'number') {
                                     return parent.swiper.realIndex === targetIdx;
@@ -704,13 +820,25 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                     signature_data = page.evaluate(f"""
                         (payload) => {{
                             const targetIdx = Number(payload.idx);
+                            const targetSlideNum = targetIdx + 1;
                             const token = payload.token;
-                            const parent = document.querySelector(`[data-capture-hero-id="${{token}}"]`);
+                            let parent = document.querySelector(`[data-capture-hero-id="${{token}}"]`);
+                            if (!parent) {{
+                                parent = document.querySelector('.cmp-carousel:has(.c-hero-banner)')
+                                      || document.querySelector('.cmp-carousel');
+                            }}
                             if (!parent) return {{ sig: 'no-parent', match: false }};
                             
-                            // Find active slide within this parent
-                            const active = parent.querySelector(`.swiper-slide-active[data-swiper-slide-index="${{targetIdx}}"]`) 
-                                           || parent.querySelector('.swiper-slide-active');
+                            const candidates = [
+                                parent.querySelector(`.swiper-slide-active[data-swiper-slide-index="${{targetIdx}}"]`),
+                                parent.querySelector(`.cmp-carousel__item.swiper-slide-active[data-swiper-slide-index="${{targetIdx}}"]`),
+                                parent.querySelector(`.cmp-carousel__item[aria-label*="Slide ${{targetSlideNum}} of"]`),
+                                parent.querySelector(`.cmp-carousel__item[data-swiper-slide-index="${{targetIdx}}"]`),
+                                parent.querySelector('.cmp-carousel__item.swiper-slide-active'),
+                                parent.querySelector('.swiper-slide-active')
+                            ].filter(Boolean);
+
+                            const active = candidates[0] || null;
 
                             if (!active) return {{ sig: "null", match: false }};
 
@@ -721,6 +849,9 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                             const text = active.innerText.trim().substring(0, 80);
                             const currentIdx = active.getAttribute('data-swiper-slide-index');
                             const attrIdx = parseInt(currentIdx, 10);
+                            const aria = active.getAttribute('aria-label') || '';
+                            const ariaMatch = aria.match(/Slide\\s+(\\d+)\\s+of\\s+\\d+/i);
+                            const ariaNum = ariaMatch ? parseInt(ariaMatch[1], 10) : null;
                             const swiperIdx = parent.swiper && typeof parent.swiper.realIndex === 'number'
                                 ? parent.swiper.realIndex
                                 : null;
@@ -732,7 +863,8 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                             );
                             const indexMatch = (swiperIdx !== null && swiperIdx === targetIdx)
                                 || (activeIndicatorIdx >= 0 && activeIndicatorIdx === targetIdx)
-                                || (Number.isInteger(attrIdx) && attrIdx === targetIdx);
+                                || (Number.isInteger(attrIdx) && attrIdx === targetIdx)
+                                || (Number.isInteger(ariaNum) && ariaNum === targetSlideNum);
 
                             // FORCE A REFLOW to fix sub-pixel blur before return
                             active.offsetHeight; 
@@ -767,25 +899,38 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                     if duplicate_any_previous and is_correct_index:
                         log(f"   ℹ️ Same signature as another slide, but index matched. Capturing anyway.")
 
-                    # Note: We relax the strict index match slightly as some carousels loop oddly
-                    if not is_correct_index and attempt < 2: 
+                    # Retry once on mismatched index, but don't block capture if fallback selectors can find the target.
+                    if not is_correct_index and attempt < 1:
                         log(f"   ⚠️ Swiper active index mismatch. Retrying...")
                         time.sleep(0.5)
                         continue
 
                     # 5. Capture Logic
                     active_slide_selector = f"[data-capture-hero-id='{hero_token}'] .swiper-slide-active[data-swiper-slide-index='{i}']"
+                    fallback_carousel_selector = ".cmp-carousel:has(.c-hero-banner)"
                     
                     # Fallback selectors if the strict one fails
                     try:
                         if page.locator(active_slide_selector).count() == 0:
-                             # Try generic active slide in hero carousel
-                             active_slide_selector = f"[data-capture-hero-id='{hero_token}'] .swiper-slide-active"
+                            active_slide_selector = f"[data-capture-hero-id='{hero_token}'] .cmp-carousel__item.swiper-slide-active[data-swiper-slide-index='{i}']"
+                        if page.locator(active_slide_selector).count() == 0:
+                            active_slide_selector = f"[data-capture-hero-id='{hero_token}'] .cmp-carousel__item[aria-label*='Slide {slide_num} of']"
+                        if page.locator(active_slide_selector).count() == 0:
+                            active_slide_selector = f"[data-capture-hero-id='{hero_token}'] .cmp-carousel__item[data-swiper-slide-index='{i}']"
+                        if page.locator(active_slide_selector).count() == 0:
+                            # Generic fallback within the scoped hero carousel
+                            active_slide_selector = f"[data-capture-hero-id='{hero_token}'] .cmp-carousel__item.swiper-slide-active"
+                        if page.locator(active_slide_selector).count() == 0:
+                            active_slide_selector = f"{fallback_carousel_selector} .cmp-carousel__item[aria-label*='Slide {slide_num} of']"
+                        if page.locator(active_slide_selector).count() == 0:
+                            active_slide_selector = f"{fallback_carousel_selector} .cmp-carousel__item[data-swiper-slide-index='{i}']"
+                        if page.locator(active_slide_selector).count() == 0:
+                            active_slide_selector = f"{fallback_carousel_selector} .cmp-carousel__item.swiper-slide-active"
                         
                         page.wait_for_selector(active_slide_selector, timeout=2000)
                     except:
-                        # Absolute fallback
-                        active_slide_selector = ".cmp-carousel__item.swiper-slide-active"
+                        # Final fallback
+                        active_slide_selector = f"{fallback_carousel_selector} .cmp-carousel__item"
 
                     # SPEED FIX: Use JPEG instead of PNG for faster processing
                     filename = f"{country_code}_{mode}_hero_{slide_num}.jpg"
@@ -821,8 +966,10 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                                     await Promise.all(imgs.map(img => {
                                         if (img.complete && img.naturalWidth > 0) return img.decode ? img.decode().catch(() => {}) : Promise.resolve();
                                         return new Promise((resolve) => {
-                                            img.onload = () => { img.decode ? img.decode().catch(() => {}).finally(resolve) : resolve(); };
-                                            img.onerror = resolve;
+                                            const timeoutId = setTimeout(resolve, 3000);
+                                            const done = () => { clearTimeout(timeoutId); resolve(); };
+                                            img.onload = () => { img.decode ? img.decode().catch(() => {}).finally(done) : done(); };
+                                            img.onerror = done;
                                         });
                                     }));
                                 }
