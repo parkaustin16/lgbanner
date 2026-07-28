@@ -498,8 +498,12 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             # --- EVASION PART 4: Random Mouse Jitter ---
             page.mouse.move(random.randint(0, 500), random.randint(0, 500))
             
-            # SPEED FIX: Use domcontentloaded for faster start
-            page.goto(url, wait_until="domcontentloaded", timeout=90000)
+            # Wait for load + network idle so images start fetching
+            page.goto(url, wait_until="load", timeout=90000)
+            try:
+                page.wait_for_load_state("networkidle", timeout=15000)
+            except:
+                pass
 
             # More Mouse Jitter
             page.mouse.move(random.randint(100, 800), random.randint(100, 600))
@@ -553,14 +557,21 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                     # UPDATED to use the specific selector logic to ensure we target the right swiper
                     page.evaluate(f"""
                         (idx) => {{
-                            // Try specific hero carousel first
-                            let car = document.querySelector('.cmp-carousel:has(.c-hero-banner)');
-                            if (!car) car = document.querySelector('.cmp-carousel');
+                            const carousels = Array.from(document.querySelectorAll('.cmp-carousel'));
+                            let car = carousels.find(c => c.querySelector('.c-hero-banner')) || carousels[0] || null;
                             
                             if (car && car.swiper) {{
-                                car.swiper.autoplay.stop();
+                                // Pause any AEM carousel autoplay control first.
+                                const pauseBtn = car.querySelector('.js-carousel-pause, [data-cmp-hook-carousel="pause"]');
+                                if (pauseBtn && !pauseBtn.disabled) pauseBtn.click();
+
+                                // Pause Swiper autoplay if available.
+                                if (car.swiper.autoplay && typeof car.swiper.autoplay.stop === 'function') {{
+                                    car.swiper.autoplay.stop();
+                                }}
                                 // Force zero speed for instant jump to avoid animation blur
                                 car.swiper.params.speed = 0;
+                                car.swiper.allowTouchMove = false;
                                 if (typeof car.swiper.slideToLoop === 'function') {{
                                     car.swiper.slideToLoop(idx);
                                 }} else {{
@@ -573,8 +584,66 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                         }}
                     """, i)
 
-                    # 2. Hard wait for visual stability (Reduced to 1s because transitions are disabled)
-                    time.sleep(1.0)
+                    # 2. Force-load lazy images in the active slide and wait for network
+                    page.evaluate(f"""
+                        (idx) => {{
+                            const carousels = Array.from(document.querySelectorAll('.cmp-carousel'));
+                            const parent = carousels.find(c => c.querySelector('.c-hero-banner')) || carousels[0] || null;
+                            if (!parent) return;
+                            const slide = parent.querySelector(`.swiper-slide-active[data-swiper-slide-index="${{idx}}"]`)
+                                          || parent.querySelector('.swiper-slide-active');
+                            if (!slide) return;
+                            // Strip lazy loading so browser fetches images immediately
+                            slide.querySelectorAll('img').forEach(img => {{
+                                img.removeAttribute('loading');
+                                // Handle data-src / data-lazy-src / data-srcset patterns
+                                const lazySrc = img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.getAttribute('data-original');
+                                if (lazySrc && !img.src) img.src = lazySrc;
+                                const lazySrcset = img.getAttribute('data-srcset') || img.getAttribute('data-lazy-srcset');
+                                if (lazySrcset && !img.srcset) img.srcset = lazySrcset;
+                            }});
+                            // Also handle picture > source elements
+                            slide.querySelectorAll('source').forEach(src => {{
+                                const lazySrcset = src.getAttribute('data-srcset') || src.getAttribute('data-lazy-srcset');
+                                if (lazySrcset && !src.srcset) src.srcset = lazySrcset;
+                            }});
+                        }}
+                    """, i)
+                    time.sleep(1.5)
+                    try:
+                        page.wait_for_function(
+                            """
+                            (targetIdx) => {
+                                const carousels = Array.from(document.querySelectorAll('.cmp-carousel'));
+                                const parent = carousels.find(c => c.querySelector('.c-hero-banner')) || carousels[0] || null;
+                                if (!parent) return false;
+                                if (parent.swiper && typeof parent.swiper.realIndex === 'number') {
+                                    return parent.swiper.realIndex === Number(targetIdx);
+                                }
+                                const indicators = Array.from(parent.querySelectorAll('.cmp-carousel__indicator'));
+                                const activeIndicatorIdx = indicators.findIndex(el =>
+                                    el.classList.contains('cmp-carousel__indicator--active') ||
+                                    el.classList.contains('on') ||
+                                    el.getAttribute('aria-current') === 'true'
+                                );
+                                if (activeIndicatorIdx >= 0) {
+                                    return activeIndicatorIdx === Number(targetIdx);
+                                }
+                                const active = parent.querySelector('.swiper-slide-active');
+                                if (!active) return false;
+                                const idxAttr = parseInt(active.getAttribute('data-swiper-slide-index'), 10);
+                                return Number.isInteger(idxAttr) && idxAttr === Number(targetIdx);
+                            }
+                            """,
+                            i,
+                            timeout=1500,
+                        )
+                    except:
+                        pass
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=8000)
+                    except:
+                        pass
 
                     # 3. Apply styles for clean capture
                     apply_clean_styles(page)
@@ -583,7 +652,8 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                     signature_data = page.evaluate(f"""
                         (targetIdx) => {{
                             // Use the same robust selector logic
-                            const parent = document.querySelector('.cmp-carousel:has(.c-hero-banner)') || document.querySelector('.cmp-carousel');
+                            const carousels = Array.from(document.querySelectorAll('.cmp-carousel'));
+                            const parent = carousels.find(c => c.querySelector('.c-hero-banner')) || carousels[0] || null;
                             if (!parent) return {{ sig: 'no-parent', match: false }};
                             
                             // Find active slide within this parent
@@ -598,6 +668,20 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                             const bgStyle = window.getComputedStyle(bgNode).backgroundImage || '';
                             const text = active.innerText.trim().substring(0, 80);
                             const currentIdx = active.getAttribute('data-swiper-slide-index');
+                            const attrIdx = parseInt(currentIdx, 10);
+                            const swiperIdx = parent.swiper && typeof parent.swiper.realIndex === 'number'
+                                ? parent.swiper.realIndex
+                                : null;
+                            const indicators = Array.from(parent.querySelectorAll('.cmp-carousel__indicator'));
+                            const activeIndicatorIdx = indicators.findIndex(el =>
+                                el.classList.contains('cmp-carousel__indicator--active') ||
+                                el.classList.contains('on') ||
+                                el.getAttribute('aria-current') === 'true'
+                            );
+                            const normalizedTarget = Number(targetIdx);
+                            const indexMatch = (swiperIdx !== null && swiperIdx === normalizedTarget)
+                                || (activeIndicatorIdx >= 0 && activeIndicatorIdx === normalizedTarget)
+                                || (Number.isInteger(attrIdx) && attrIdx === normalizedTarget);
 
                             // FORCE A REFLOW to fix sub-pixel blur before return
                             active.offsetHeight; 
@@ -610,7 +694,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                                     bgStyle,
                                     text
                                 ].join('|'),
-                                match: currentIdx == targetIdx
+                                match: indexMatch
                             }};
                         }}
                     """, i)
@@ -668,8 +752,33 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
                     if element:
                         element.scroll_into_view_if_needed()
-                        # Shortened wait for settling
-                        time.sleep(0.2)
+                        # Strip lazy attributes and wait for all images to fully decode
+                        try:
+                            page.evaluate("""
+                                async (el) => {
+                                    const imgs = Array.from(el.querySelectorAll('img'));
+                                    // Force-resolve any remaining lazy sources
+                                    imgs.forEach(img => {
+                                        img.removeAttribute('loading');
+                                        const ds = img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.getAttribute('data-original');
+                                        if (ds && (!img.src || img.src === window.location.href)) img.src = ds;
+                                        const dss = img.getAttribute('data-srcset') || img.getAttribute('data-lazy-srcset');
+                                        if (dss && !img.srcset) img.srcset = dss;
+                                    });
+                                    // Wait for load + decode
+                                    await Promise.all(imgs.map(img => {
+                                        if (img.complete && img.naturalWidth > 0) return img.decode ? img.decode().catch(() => {}) : Promise.resolve();
+                                        return new Promise((resolve) => {
+                                            img.onload = () => { img.decode ? img.decode().catch(() => {}).finally(resolve) : resolve(); };
+                                            img.onerror = resolve;
+                                        });
+                                    }));
+                                }
+                            """, element)
+                        except Exception as img_wait_err:
+                            log(f"   ⚠️ Image load wait error: {img_wait_err}")
+                        # Settling time after images decode
+                        time.sleep(0.5)
 
                         # Use scale='device' for the screenshot to respect our DPR 2.0
                         # SPEED FIX: Save as JPEG to reduce file size and encoding time
