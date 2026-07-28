@@ -41,7 +41,7 @@ if sys.platform == 'win32':
 
 from playwright.sync_api import sync_playwright, ViewportSize
 
-BUILD_VERSION = "2026-07-27-indicator-v3"
+BUILD_VERSION = "2026-07-28-slide-target-fix-v1"
 
 # --- CONFIGURATION ---
 UPLOAD_FOLDER = 'static/captures'
@@ -544,39 +544,77 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             )
             carousel_selector = f'[data-capture-carousel="{carousel_token}"]'
 
-            # IMPORTANT: Count only indicators owned by this carousel. A normal
-            # querySelectorAll() can also collect indicators from nested carousels,
-            # producing an index that never matches the hero Swiper.
+            # Build a stable one-to-one mapping between each indicator and its
+            # actual hero panel. Some LG pages contain nested Swipers, duplicate
+            # desktop/mobile markup, or indicators whose aria-controls points to a
+            # child inside the slide. Mapping the target panel once prevents later
+            # captures from falling back to the previously active banner.
             setup = page.evaluate(
                 """
                 ({ selector }) => {
                     const car = document.querySelector(selector);
-                    if (!car) return { count: 0, swiperFound: false, mappings: [] };
+                    if (!car) {
+                        return { count: 0, swiperFound: false, mappings: [] };
+                    }
 
                     const ownedIndicators = [...car.querySelectorAll('.cmp-carousel__indicator')]
                         .filter((el) => el.closest('.cmp-carousel') === car);
 
-                    // Some implementations attach the Swiper instance to a nested
-                    // .swiper element rather than to .cmp-carousel itself.
+                    const directItems = [...car.querySelectorAll('.cmp-carousel__item')]
+                        .filter((el) =>
+                            el.closest('.cmp-carousel') === car &&
+                            !el.parentElement?.closest('.cmp-carousel__item')
+                        );
+
+                    const directSwiperSlides = [...car.querySelectorAll('.swiper-slide')]
+                        .filter((el) =>
+                            el.closest('.cmp-carousel') === car &&
+                            !el.parentElement?.closest('.swiper-slide')
+                        );
+
+                    // Prefer AEM carousel items. Fall back to top-level Swiper slides.
+                    const ownedSlides = directItems.length ? directItems : directSwiperSlides;
+                    ownedSlides.forEach((slide, idx) => {
+                        slide.setAttribute('data-capture-slide-index', String(idx));
+                    });
+
                     const possibleHosts = [
                         car,
                         ...car.querySelectorAll('.swiper, .swiper-container, [class*="swiper"]')
                     ];
                     const swiperHost = possibleHosts.find((el) => el && el.swiper) || null;
-                    if (swiperHost) swiperHost.setAttribute('data-capture-swiper-host', 'true');
+                    if (swiperHost) {
+                        swiperHost.setAttribute('data-capture-swiper-host', 'true');
+                    }
 
                     const mappings = ownedIndicators.map((indicator, idx) => {
                         indicator.setAttribute('data-capture-indicator-index', String(idx));
+
                         const controls = indicator.getAttribute('aria-controls');
+                        const controlledNode = controls ? document.getElementById(controls) : null;
+
+                        // aria-controls can point either to the slide itself or to a
+                        // nested child. Resolve it back to the owned top-level panel.
+                        let panelIndex = ownedSlides.findIndex((slide) =>
+                            slide === controlledNode ||
+                            (controlledNode && slide.contains(controlledNode))
+                        );
+
+                        if (panelIndex < 0 && idx < ownedSlides.length) {
+                            panelIndex = idx;
+                        }
+
                         return {
                             idx,
                             controls,
+                            panelIndex,
                             text: (indicator.textContent || '').trim(),
                         };
                     });
 
                     return {
                         count: ownedIndicators.length,
+                        slideCount: ownedSlides.length,
                         swiperFound: !!swiperHost,
                         mappings,
                     };
@@ -585,13 +623,15 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                 {"selector": carousel_selector},
             )
 
+            mappings = setup.get("mappings", [])
             num_slides = int(setup.get("count", 0))
             if num_slides == 0:
                 log("❌ No indicators owned by the selected hero carousel")
                 return
 
             log(
-                f"📸 Found {num_slides} hero indicators "
+                f"📸 Found {num_slides} hero indicators / "
+                f"{int(setup.get('slideCount', 0))} mapped panels "
                 f"(Swiper instance: {'yes' if setup.get('swiperFound') else 'no'})."
             )
 
@@ -600,6 +640,8 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             for i in range(num_slides):
                 slide_num = i + 1
                 success = False
+                mapping = mappings[i] if i < len(mappings) else {}
+                target_panel_index = int(mapping.get("panelIndex", i))
 
                 for attempt in range(4):
                     log(f"   Capturing slide {slide_num} (Attempt {attempt + 1})...")
@@ -614,9 +656,8 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                         time.sleep(0.5)
                         continue
 
-                    # Stop autoplay, but do not use activeIndex/realIndex as the
-                    # source of truth. LG pages can use loop clones, nested Swipers,
-                    # or custom index offsets. The indicator itself is authoritative.
+                    # Stop autoplay before navigation so the carousel cannot advance
+                    # between target selection and screenshot capture.
                     page.evaluate(
                         """
                         ({ selector }) => {
@@ -629,16 +670,16 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                             if (swiper.autoplay && typeof swiper.autoplay.stop === 'function') {
                                 swiper.autoplay.stop();
                             }
-                            swiper.params.speed = 0;
+                            if (swiper.params) swiper.params.speed = 0;
                         }
                         """,
                         {"selector": carousel_selector},
                     )
 
+                    # First use the site's own indicator navigation.
                     try:
                         indicator.click(force=True, timeout=3000)
                     except Exception:
-                        # DOM-click fallback for overlays or unusual button markup.
                         page.evaluate(
                             """
                             ({ selector, targetIdx }) => {
@@ -646,54 +687,62 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                                 const ind = car && car.querySelector(
                                     `[data-capture-indicator-index="${targetIdx}"]`
                                 );
-                                if (ind) ind.click();
+                                if (!ind) return;
+                                ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']
+                                    .forEach((type) => ind.dispatchEvent(new MouseEvent(type, {
+                                        bubbles: true,
+                                        cancelable: true,
+                                        view: window,
+                                    })));
                             }
                             """,
                             {"selector": carousel_selector, "targetIdx": i},
                         )
 
-                    # Wait until the requested indicator becomes active. This avoids
-                    # comparing Swiper's internal indexes, which caused the mismatch.
+                    # Give the native carousel a brief chance to activate the target.
                     try:
                         page.wait_for_function(
                             """
-                            ({ selector, targetIdx }) => {
+                            ({ selector, targetIdx, panelIndex }) => {
                                 const car = document.querySelector(selector);
                                 if (!car) return false;
+
                                 const ind = car.querySelector(
                                     `[data-capture-indicator-index="${targetIdx}"]`
                                 );
-                                if (!ind) return false;
+                                const panel = car.querySelector(
+                                    `[data-capture-slide-index="${panelIndex}"]`
+                                );
+                                if (!ind || !panel) return false;
 
-                                const activeByClass =
+                                const indicatorActive =
                                     ind.classList.contains('cmp-carousel__indicator--active') ||
                                     ind.classList.contains('swiper-pagination-bullet-active') ||
                                     ind.classList.contains('active') ||
-                                    ind.closest('li')?.classList.contains('active');
-
-                                const activeByAria =
+                                    ind.closest('li')?.classList.contains('active') ||
                                     ind.getAttribute('aria-selected') === 'true' ||
                                     ind.getAttribute('aria-current') === 'true';
 
-                                const controls = ind.getAttribute('aria-controls');
-                                const panel = controls ? document.getElementById(controls) : null;
-                                const panelActive = panel && (
-                                    panel.getAttribute('aria-hidden') === 'false' ||
+                                const panelActive =
                                     panel.classList.contains('swiper-slide-active') ||
                                     panel.classList.contains('cmp-carousel__item--active') ||
-                                    panel.classList.contains('active')
-                                );
+                                    panel.classList.contains('active') ||
+                                    panel.getAttribute('aria-hidden') === 'false';
 
-                                return !!(activeByClass || activeByAria || panelActive);
+                                return !!(indicatorActive || panelActive);
                             }
                             """,
-                            arg={"selector": carousel_selector, "targetIdx": i},
-                            timeout=7000,
+                            arg={
+                                "selector": carousel_selector,
+                                "targetIdx": i,
+                                "panelIndex": target_panel_index,
+                            },
+                            timeout=3000,
                             polling=100,
                         )
                     except Exception:
-                        # Fallback: call the actual nested Swiper only after indicator
-                        # navigation failed. Still do not reject based on its index.
+                        # Swiper fallback. The panel mapping remains the source of
+                        # truth; Swiper's loop indexes are used only to trigger motion.
                         page.evaluate(
                             """
                             ({ selector, targetIdx }) => {
@@ -704,7 +753,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                                 const swiper = host && host.swiper;
                                 if (!swiper) return;
 
-                                if (swiper.params.loop && typeof swiper.slideToLoop === 'function') {
+                                if (swiper.params?.loop && typeof swiper.slideToLoop === 'function') {
                                     swiper.slideToLoop(targetIdx, 0, false);
                                 } else if (typeof swiper.slideTo === 'function') {
                                     swiper.slideTo(targetIdx, 0, false);
@@ -716,97 +765,141 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                             """,
                             {"selector": carousel_selector, "targetIdx": i},
                         )
-                        time.sleep(0.8)
+                        time.sleep(0.4)
 
                     apply_clean_styles(page)
 
-                    # Locate an active slide owned by this carousel only. Filtering
-                    # with closest('.cmp-carousel') excludes nested carousel slides.
+                    # Select the mapped target panel directly. If the website did not
+                    # visually activate it, reveal only that panel for capture. This is
+                    # the key fix for the repeated-banner loop: we never fall back to
+                    # whichever slide happened to remain active from the prior capture.
                     state = page.evaluate(
                         """
-                        ({ selector, targetIdx }) => {
+                        ({ selector, panelIndex, targetIdx }) => {
                             const car = document.querySelector(selector);
                             if (!car) return null;
 
-                            const ownedSlides = [...car.querySelectorAll(
-                                '.swiper-slide, .cmp-carousel__item'
-                            )].filter((el) => el.closest('.cmp-carousel') === car);
+                            car.querySelectorAll('[data-capture-target-slide="true"]')
+                                .forEach((el) => el.removeAttribute('data-capture-target-slide'));
 
-                            const indicator = car.querySelector(
-                                `[data-capture-indicator-index="${targetIdx}"]`
-                            );
-                            const controls = indicator && indicator.getAttribute('aria-controls');
-                            const controlled = controls ? document.getElementById(controls) : null;
+                            const ownedSlides = [...car.querySelectorAll('[data-capture-slide-index]')]
+                                .filter((el) => el.closest('.cmp-carousel') === car);
 
-                            let active = ownedSlides.find((el) =>
-                                el.classList.contains('swiper-slide-active') ||
-                                el.classList.contains('cmp-carousel__item--active') ||
-                                el.getAttribute('aria-hidden') === 'false'
+                            let target = car.querySelector(
+                                `[data-capture-slide-index="${panelIndex}"]`
                             );
 
-                            // Prefer the explicitly controlled panel when it is visible.
-                            if (controlled && ownedSlides.includes(controlled)) {
-                                const r = controlled.getBoundingClientRect();
-                                const visible = r.width > 0 && r.height > 0 &&
-                                    getComputedStyle(controlled).display !== 'none' &&
-                                    getComputedStyle(controlled).visibility !== 'hidden';
-                                if (visible) active = controlled;
+                            // Last-resort mapping for unusual pages where the DOM was
+                            // rebuilt after setup.
+                            if (!target && targetIdx < ownedSlides.length) {
+                                target = ownedSlides[targetIdx];
+                            }
+                            if (!target) return null;
+
+                            // Deterministically isolate the requested slide. Inline
+                            // !important rules override off-screen transforms, opacity,
+                            // and hidden states used by different carousel libraries.
+                            ownedSlides.forEach((slide) => {
+                                const isTarget = slide === target;
+                                slide.style.setProperty('display', isTarget ? 'block' : 'none', 'important');
+                                slide.style.setProperty('visibility', isTarget ? 'visible' : 'hidden', 'important');
+                                slide.style.setProperty('opacity', isTarget ? '1' : '0', 'important');
+                                slide.style.setProperty('transform', 'none', 'important');
+                                slide.style.setProperty('position', isTarget ? 'relative' : 'absolute', 'important');
+                                slide.style.setProperty('inset', isTarget ? 'auto' : '0', 'important');
+                                slide.style.setProperty('width', isTarget ? '100%' : '0', 'important');
+                                slide.style.setProperty('height', isTarget ? 'auto' : '0', 'important');
+                                slide.style.setProperty('pointer-events', 'none', 'important');
+                                slide.setAttribute('aria-hidden', isTarget ? 'false' : 'true');
+                            });
+
+                            // Neutralize translated wrappers that can leave the mapped
+                            // panel outside the clipping area even after it is visible.
+                            let ancestor = target.parentElement;
+                            while (ancestor && ancestor !== car) {
+                                if (
+                                    ancestor.classList.contains('swiper-wrapper') ||
+                                    ancestor.classList.contains('cmp-carousel__content') ||
+                                    ancestor.getAttribute('role') === 'group'
+                                ) {
+                                    ancestor.style.setProperty('transform', 'none', 'important');
+                                    ancestor.style.setProperty('overflow', 'visible', 'important');
+                                    ancestor.style.setProperty('height', 'auto', 'important');
+                                }
+                                ancestor = ancestor.parentElement;
                             }
 
-                            if (!active) return null;
+                            target.setAttribute('data-capture-target-slide', 'true');
+                            car.querySelectorAll('[data-capture-element="true"]')
+                                .forEach((el) => el.removeAttribute('data-capture-element'));
 
-                            active.setAttribute('data-capture-active-slide', 'true');
-                            const hero = active.querySelector('.c-hero-banner') || active;
-                            const img = hero.querySelector('img');
-                            const source = hero.querySelector('picture source');
-                            const bg = getComputedStyle(hero).backgroundImage;
-                            const text = (hero.innerText || '')
-                                .trim().replace(/\\s+/g, ' ').substring(0, 160);
+                            const heroCandidates = [
+                                ...target.querySelectorAll('.c-hero-banner, .cmp-image')
+                            ].filter((el) => {
+                                const r = el.getBoundingClientRect();
+                                const style = getComputedStyle(el);
+                                return r.width > 10 && r.height > 10 &&
+                                    style.display !== 'none' &&
+                                    style.visibility !== 'hidden' &&
+                                    Number(style.opacity || 1) > 0;
+                            });
+
+                            heroCandidates.sort((a, b) => {
+                                const ar = a.getBoundingClientRect();
+                                const br = b.getBoundingClientRect();
+                                return (br.width * br.height) - (ar.width * ar.height);
+                            });
+
+                            const hero = heroCandidates[0] || target;
+                            hero.setAttribute('data-capture-element', 'true');
                             const rect = hero.getBoundingClientRect();
-                            void hero.offsetHeight;
+
+                            const assetUrls = [
+                                ...[...hero.querySelectorAll('img')].map((img) => img.currentSrc || img.src || ''),
+                                ...[...hero.querySelectorAll('source')].map((source) => source.srcset || ''),
+                                ...[...hero.querySelectorAll('video')].map((video) => video.poster || video.currentSrc || ''),
+                                ...[hero, ...hero.querySelectorAll('*')]
+                                    .map((el) => getComputedStyle(el).backgroundImage)
+                                    .filter((value) => value && value !== 'none'),
+                            ].filter(Boolean);
+
+                            const text = (hero.innerText || '')
+                                .trim().replace(/\\s+/g, ' ').substring(0, 200);
 
                             return {
-                                signature: [
-                                    img ? (img.currentSrc || img.src) : 'no-img',
-                                    source ? source.srcset : 'no-source',
-                                    bg || 'no-bg',
-                                    text,
-                                ].join('|'),
+                                signature: [...new Set(assetUrls), text].join('|'),
                                 width: rect.width,
                                 height: rect.height,
-                                controls,
+                                panelIndex,
                             };
                         }
                         """,
-                        {"selector": carousel_selector, "targetIdx": i},
+                        {
+                            "selector": carousel_selector,
+                            "panelIndex": target_panel_index,
+                            "targetIdx": i,
+                        },
                     )
 
                     if not state or state.get("width", 0) < 10 or state.get("height", 0) < 10:
-                        log("⚠️ Active hero slide was not visible. Retrying...")
-                        continue
-
-                    current_sig = state["signature"]
-                    if current_sig in captured_signatures:
-                        log("⚠️ Same rendered banner detected. Retrying navigation...")
-                        time.sleep(0.5)
+                        log("⚠️ Target hero panel was not visible. Retrying...")
+                        time.sleep(0.4)
                         continue
 
                     active_slide = page.locator(
-                        f'{carousel_selector} [data-capture-active-slide="true"]'
-                    ).last
+                        f'{carousel_selector} [data-capture-target-slide="true"]'
+                    ).first
                     try:
                         active_slide.wait_for(state="visible", timeout=3000)
                     except Exception:
-                        log("⚠️ Active slide is not visible. Retrying...")
+                        log("⚠️ Target slide is not visible. Retrying...")
                         continue
 
                     filename = f"{country_code}_{mode}_hero_{slide_num}.jpg"
                     filepath = os.path.join(session_path, filename)
 
-                    banner = active_slide.locator(".c-hero-banner").first
-                    if banner.count() == 0:
-                        banner = active_slide.locator(".cmp-image").first
-                    element = banner if banner.count() > 0 else active_slide
+                    marked_element = active_slide.locator('[data-capture-element="true"]').first
+                    element = marked_element if marked_element.count() > 0 else active_slide
 
                     element.scroll_into_view_if_needed()
 
@@ -826,6 +919,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                                         try { await img.decode(); } catch (_) {}
                                     }
                                 }));
+                                await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
                             }
                             """
                         )
@@ -838,7 +932,13 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                         type="jpeg",
                         quality=95,
                     )
-                    captured_signatures.add(current_sig)
+
+                    current_sig = state.get("signature", "")
+                    if current_sig and current_sig in captured_signatures:
+                        log("ℹ️ Duplicate visual content detected, but captured as a separate slide.")
+                    if current_sig:
+                        captured_signatures.add(current_sig)
+
                     log(f"✅ Captured: {filename}")
 
                     cloudinary_url = None
