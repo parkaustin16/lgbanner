@@ -537,13 +537,62 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                     log("❌ Could not identify hero carousel")
                     return
 
-            indicators = list(hero_carousel.query_selector_all(".cmp-carousel__indicator"))
-            num_slides = len(indicators)
-            log(f"📸 Found {num_slides} indicators in carousel.")
+            # Mark the detected hero carousel so all subsequent JS targets the same element.
+            hero_token = f"hero-{country_code}-{mode}-{int(time.time() * 1000)}"
+            hero_carousel.evaluate("(el, token) => el.setAttribute('data-capture-hero-id', token)", hero_token)
+
+            # Prefer logical slide count from Swiper real indices (handles loop-cloned nodes).
+            num_slides = page.evaluate("""
+                (token) => {
+                    const car = document.querySelector(`[data-capture-hero-id="${token}"]`);
+                    if (!car) return 0;
+
+                    if (car.swiper && Array.isArray(car.swiper.slides) && car.swiper.slides.length > 0) {
+                        const real = new Set();
+                        car.swiper.slides.forEach((slide) => {
+                            const idx = Number(slide.getAttribute('data-swiper-slide-index'));
+                            if (Number.isInteger(idx)) real.add(idx);
+                        });
+                        if (real.size > 0) return real.size;
+                    }
+
+                    const indexed = new Set();
+                    car.querySelectorAll('.cmp-carousel__item[data-swiper-slide-index], .swiper-slide[data-swiper-slide-index]').forEach((slide) => {
+                        const idx = Number(slide.getAttribute('data-swiper-slide-index'));
+                        if (Number.isInteger(idx)) indexed.add(idx);
+                    });
+                    if (indexed.size > 0) return indexed.size;
+
+                    // Fallback from accessibility labels such as "Slide 7 of 14"
+                    const ariaSlides = car.querySelectorAll('.cmp-carousel__item[aria-label], .swiper-slide[aria-label]');
+                    let ariaMax = 0;
+                    ariaSlides.forEach((slide) => {
+                        const label = slide.getAttribute('aria-label') || '';
+                        const m = label.match(/Slide\\s+\\d+\\s+of\\s+(\\d+)/i);
+                        if (m) {
+                            const total = Number(m[1]);
+                            if (Number.isInteger(total) && total > ariaMax) ariaMax = total;
+                        }
+                    });
+                    if (ariaMax > 0) return ariaMax;
+
+                    const indicators = car.querySelectorAll('.cmp-carousel__indicator').length;
+                    if (indicators > 0) return indicators;
+
+                    const visibleSlides = car.querySelectorAll('.cmp-carousel__item, .swiper-slide').length;
+                    return visibleSlides;
+                }
+            """, hero_token)
+
+            log(f"📸 Found {num_slides} logical slides in carousel.")
+            if num_slides <= 0:
+                log("❌ No slides detected in hero carousel")
+                return
 
             # TRACKER: Keep recent signatures to detect failed navigation without blocking valid repeats.
             captured_signatures = []
             last_captured_sig = None
+            captured_slide_numbers = set()
 
             for i in range(num_slides):
                 slide_num = i + 1
@@ -556,9 +605,10 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                     # 1. Force the swiper state & stop autoplay via JS
                     # UPDATED to use the specific selector logic to ensure we target the right swiper
                     page.evaluate(f"""
-                        (idx) => {{
-                            const carousels = Array.from(document.querySelectorAll('.cmp-carousel'));
-                            let car = carousels.find(c => c.querySelector('.c-hero-banner')) || carousels[0] || null;
+                        (payload) => {{
+                            const idx = payload.idx;
+                            const token = payload.token;
+                            const car = document.querySelector(`[data-capture-hero-id="${{token}}"]`);
                             
                             if (car && car.swiper) {{
                                 // Pause any AEM carousel autoplay control first.
@@ -582,13 +632,14 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                                 if (inds[idx]) inds[idx].click();
                             }}
                         }}
-                    """, i)
+                    """, {"idx": i, "token": hero_token})
 
                     # 2. Force-load lazy images in the active slide and wait for network
                     page.evaluate(f"""
-                        (idx) => {{
-                            const carousels = Array.from(document.querySelectorAll('.cmp-carousel'));
-                            const parent = carousels.find(c => c.querySelector('.c-hero-banner')) || carousels[0] || null;
+                        (payload) => {{
+                            const idx = payload.idx;
+                            const token = payload.token;
+                            const parent = document.querySelector(`[data-capture-hero-id="${{token}}"]`);
                             if (!parent) return;
                             const slide = parent.querySelector(`.swiper-slide-active[data-swiper-slide-index="${{idx}}"]`)
                                           || parent.querySelector('.swiper-slide-active');
@@ -608,17 +659,18 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                                 if (lazySrcset && !src.srcset) src.srcset = lazySrcset;
                             }});
                         }}
-                    """, i)
+                    """, {"idx": i, "token": hero_token})
                     time.sleep(1.5)
                     try:
                         page.wait_for_function(
                             """
-                            (targetIdx) => {
-                                const carousels = Array.from(document.querySelectorAll('.cmp-carousel'));
-                                const parent = carousels.find(c => c.querySelector('.c-hero-banner')) || carousels[0] || null;
+                            (payload) => {
+                                const targetIdx = Number(payload.idx);
+                                const token = payload.token;
+                                const parent = document.querySelector(`[data-capture-hero-id="${token}"]`);
                                 if (!parent) return false;
                                 if (parent.swiper && typeof parent.swiper.realIndex === 'number') {
-                                    return parent.swiper.realIndex === Number(targetIdx);
+                                    return parent.swiper.realIndex === targetIdx;
                                 }
                                 const indicators = Array.from(parent.querySelectorAll('.cmp-carousel__indicator'));
                                 const activeIndicatorIdx = indicators.findIndex(el =>
@@ -627,15 +679,15 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                                     el.getAttribute('aria-current') === 'true'
                                 );
                                 if (activeIndicatorIdx >= 0) {
-                                    return activeIndicatorIdx === Number(targetIdx);
+                                    return activeIndicatorIdx === targetIdx;
                                 }
                                 const active = parent.querySelector('.swiper-slide-active');
                                 if (!active) return false;
                                 const idxAttr = parseInt(active.getAttribute('data-swiper-slide-index'), 10);
-                                return Number.isInteger(idxAttr) && idxAttr === Number(targetIdx);
+                                return Number.isInteger(idxAttr) && idxAttr === targetIdx;
                             }
                             """,
-                            i,
+                            {"idx": i, "token": hero_token},
                             timeout=1500,
                         )
                     except:
@@ -650,10 +702,10 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
                     # 4. Detect "Current Slide Signature" to verify uniqueness
                     signature_data = page.evaluate(f"""
-                        (targetIdx) => {{
-                            // Use the same robust selector logic
-                            const carousels = Array.from(document.querySelectorAll('.cmp-carousel'));
-                            const parent = carousels.find(c => c.querySelector('.c-hero-banner')) || carousels[0] || null;
+                        (payload) => {{
+                            const targetIdx = Number(payload.idx);
+                            const token = payload.token;
+                            const parent = document.querySelector(`[data-capture-hero-id="${{token}}"]`);
                             if (!parent) return {{ sig: 'no-parent', match: false }};
                             
                             // Find active slide within this parent
@@ -678,10 +730,9 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                                 el.classList.contains('on') ||
                                 el.getAttribute('aria-current') === 'true'
                             );
-                            const normalizedTarget = Number(targetIdx);
-                            const indexMatch = (swiperIdx !== null && swiperIdx === normalizedTarget)
-                                || (activeIndicatorIdx >= 0 && activeIndicatorIdx === normalizedTarget)
-                                || (Number.isInteger(attrIdx) && attrIdx === normalizedTarget);
+                            const indexMatch = (swiperIdx !== null && swiperIdx === targetIdx)
+                                || (activeIndicatorIdx >= 0 && activeIndicatorIdx === targetIdx)
+                                || (Number.isInteger(attrIdx) && attrIdx === targetIdx);
 
                             // FORCE A REFLOW to fix sub-pixel blur before return
                             active.offsetHeight; 
@@ -692,12 +743,13 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                                     img ? (img.currentSrc || img.src || 'no-img-src') : 'no-img',
                                     link ? (link.href || 'no-link') : 'no-link',
                                     bgStyle,
-                                    text
+                                    text,
+                                    active.getAttribute('data-title') || ''
                                 ].join('|'),
                                 match: indexMatch
                             }};
                         }}
-                    """, i)
+                    """, {"idx": i, "token": hero_token})
 
                     current_sig = signature_data['sig']
                     is_correct_index = signature_data['match']
@@ -722,13 +774,13 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                         continue
 
                     # 5. Capture Logic
-                    active_slide_selector = f".cmp-carousel:has(.c-hero-banner) .swiper-slide-active[data-swiper-slide-index='{i}']"
+                    active_slide_selector = f"[data-capture-hero-id='{hero_token}'] .swiper-slide-active[data-swiper-slide-index='{i}']"
                     
                     # Fallback selectors if the strict one fails
                     try:
                         if page.locator(active_slide_selector).count() == 0:
                              # Try generic active slide in hero carousel
-                             active_slide_selector = ".cmp-carousel:has(.c-hero-banner) .swiper-slide-active"
+                             active_slide_selector = f"[data-capture-hero-id='{hero_token}'] .swiper-slide-active"
                         
                         page.wait_for_selector(active_slide_selector, timeout=2000)
                     except:
@@ -785,6 +837,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                         element.screenshot(path=filepath, scale="device", type="jpeg", quality=95)
                         captured_signatures.append(current_sig)
                         last_captured_sig = current_sig
+                        captured_slide_numbers.add(slide_num)
                         log(f"✅ Captured: {filename}")
 
                         cloudinary_url = None
@@ -801,6 +854,14 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
                 if not success:
                     log(f"   ❌ Failed to capture unique version of slide {slide_num} after 4 attempts")
+
+            # Strict end-of-run validation so failures are visible immediately.
+            captured_count = len(captured_slide_numbers)
+            if captured_count != num_slides:
+                missing = [str(n) for n in range(1, num_slides + 1) if n not in captured_slide_numbers]
+                log(f"❌ Capture incomplete: expected {num_slides}, captured {captured_count}. Missing slides: {', '.join(missing)}")
+            else:
+                log(f"✅ Capture complete: {captured_count}/{num_slides} slides captured")
 
         except Exception as e:
             log(f"❌ Error: {str(e)}")
