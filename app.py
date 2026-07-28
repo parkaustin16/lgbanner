@@ -4,6 +4,8 @@ import zipfile
 import io
 import sys
 import asyncio
+import hashlib
+from pathlib import Path
 from datetime import datetime
 import streamlit as st
 import cloudinary
@@ -41,7 +43,13 @@ if sys.platform == 'win32':
 
 from playwright.sync_api import sync_playwright, ViewportSize
 
-BUILD_VERSION = "2026-07-28-slide-target-fix-v1"
+BUILD_VERSION = "2026-07-28-direct-panel-v2"
+SOURCE_FILE = Path(__file__).resolve()
+try:
+    SOURCE_SHA = hashlib.sha256(SOURCE_FILE.read_bytes()).hexdigest()[:10]
+except Exception:
+    SOURCE_SHA = "unknown"
+RUNTIME_ID = f"{SOURCE_FILE.name}:{SOURCE_SHA}"
 
 # --- CONFIGURATION ---
 UPLOAD_FOLDER = 'static/captures'
@@ -576,6 +584,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                     const ownedSlides = directItems.length ? directItems : directSwiperSlides;
                     ownedSlides.forEach((slide, idx) => {
                         slide.setAttribute('data-capture-slide-index', String(idx));
+                        slide.setAttribute('data-capture-panel-key', `panel-${idx}`);
                     });
 
                     const possibleHosts = [
@@ -608,6 +617,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                             idx,
                             controls,
                             panelIndex,
+                            panelKey: panelIndex >= 0 ? `panel-${panelIndex}` : null,
                             text: (indicator.textContent || '').trim(),
                         };
                     });
@@ -642,6 +652,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                 success = False
                 mapping = mappings[i] if i < len(mappings) else {}
                 target_panel_index = int(mapping.get("panelIndex", i))
+                target_panel_key = mapping.get("panelKey") or f"panel-{target_panel_index}"
 
                 for attempt in range(4):
                     log(f"   Capturing slide {slide_num} (Attempt {attempt + 1})...")
@@ -775,7 +786,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                     # whichever slide happened to remain active from the prior capture.
                     state = page.evaluate(
                         """
-                        ({ selector, panelIndex, targetIdx }) => {
+                        ({ selector, panelIndex, panelKey, targetIdx }) => {
                             const car = document.querySelector(selector);
                             if (!car) return null;
 
@@ -786,6 +797,8 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                                 .filter((el) => el.closest('.cmp-carousel') === car);
 
                             let target = car.querySelector(
+                                `[data-capture-panel-key="${panelKey}"]`
+                            ) || car.querySelector(
                                 `[data-capture-slide-index="${panelIndex}"]`
                             );
 
@@ -833,6 +846,39 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                             car.querySelectorAll('[data-capture-element="true"]')
                                 .forEach((el) => el.removeAttribute('data-capture-element'));
 
+                            // Hidden carousel panels are often lazy-loaded. Promote
+                            // common data-* sources before taking the screenshot so
+                            // direct panel capture does not produce blank banners.
+                            target.querySelectorAll('img').forEach((img) => {
+                                const lazySrc =
+                                    img.getAttribute('data-src') ||
+                                    img.getAttribute('data-lazy-src') ||
+                                    img.getAttribute('data-original') ||
+                                    img.dataset?.src ||
+                                    img.dataset?.lazySrc;
+                                const lazySrcset =
+                                    img.getAttribute('data-srcset') ||
+                                    img.getAttribute('data-lazy-srcset') ||
+                                    img.dataset?.srcset;
+                                if (lazySrc && (!img.getAttribute('src') || img.getAttribute('src').startsWith('data:'))) {
+                                    img.setAttribute('src', lazySrc);
+                                }
+                                if (lazySrcset && !img.getAttribute('srcset')) {
+                                    img.setAttribute('srcset', lazySrcset);
+                                }
+                                img.loading = 'eager';
+                                img.decoding = 'sync';
+                            });
+                            target.querySelectorAll('source').forEach((source) => {
+                                const lazySrcset =
+                                    source.getAttribute('data-srcset') ||
+                                    source.getAttribute('data-lazy-srcset') ||
+                                    source.dataset?.srcset;
+                                if (lazySrcset && !source.getAttribute('srcset')) {
+                                    source.setAttribute('srcset', lazySrcset);
+                                }
+                            });
+
                             const heroCandidates = [
                                 ...target.querySelectorAll('.c-hero-banner, .cmp-image')
                             ].filter((el) => {
@@ -877,6 +923,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                         {
                             "selector": carousel_selector,
                             "panelIndex": target_panel_index,
+                            "panelKey": target_panel_key,
                             "targetIdx": i,
                         },
                     )
@@ -969,13 +1016,16 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
 def main():
     st.title("LG Hero Banner Capture")
-    st.caption(f"Build: {BUILD_VERSION}")
+    st.caption(f"Build: {BUILD_VERSION} · Runtime: {RUNTIME_ID}")
 
     with st.expander("⚙️ Configuration Status", expanded=False):
         cloudinary_configured = all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET])
         airtable_configured = all([AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_TABLE_NAME])
         st.write("**Cloudinary:**", "✅ Configured" if cloudinary_configured else "❌ Not configured")
         st.write("**Airtable:**", "✅ Configured" if airtable_configured else "❌ Not configured")
+        st.write("**Runtime source:**", str(SOURCE_FILE))
+        st.write("**Source SHA:**", SOURCE_SHA)
+        st.caption("This build never emits the legacy ‘Same rendered banner detected’ retry message.")
 
     if 'log_messages' not in st.session_state:
         st.session_state.log_messages = []
@@ -1107,7 +1157,7 @@ def main():
             selected_code = next(code for code, label in all_subs if label == selected_option)
             capture_queue = [(selected_code, selected_option)]
 
-        add_log(f"🧩 Running build **{BUILD_VERSION}**")
+        add_log(f"🧩 Running build **{BUILD_VERSION}** · `{RUNTIME_ID}`")
         add_log(f"🏁 Starting capture for **{selected_option}** ({len(capture_queue)} sites) in **{mode}** mode...")
         
         progress_bar = st.progress(0)
