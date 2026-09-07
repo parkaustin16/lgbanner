@@ -319,6 +319,7 @@ def apply_clean_styles(page_obj):
         .c-membership-popup, 
         [class*="cloud-shoplive"], [class*="csl-"], [class*="svelte-"], 
         .l-cookie-teaser, .c-cookie-settings, .LiveMiniPreview,
+        .btn-chip-aigate, .btn-chip-aigate *,
         .c-notification-banner, .c-notification-banner *, .c-notification-banner__wrap,
         .open-button, .js-video-pause, .js-video-play, [aria-label*="Pausar"], [aria-label*="video"]
             { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
