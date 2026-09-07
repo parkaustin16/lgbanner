@@ -294,6 +294,8 @@ def save_to_airtable(country_code, mode, urls, full_country_name):
             }
 
             response = requests.post(url, json=data, headers=headers, verify=False)
+            if not response.ok:
+                raise RuntimeError(f"Airtable API response ({response.status_code}): {response.text}")
             response.raise_for_status()
             result = response.json()
 
