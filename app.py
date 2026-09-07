@@ -552,7 +552,13 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             return
 
         # --- EVASION PART 2: Context & Headers ---
-        user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+        user_agent = (
+            "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/121.0.0.0 Mobile Safari/537.36"
+            if mode == 'mobile'
+            else "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+        )
         
         context = browser.new_context(
             viewport=size, 
@@ -564,7 +570,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                 "Accept-Language": "en-US,en;q=0.9",
                 "Sec-Ch-Ua": '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
                 "Sec-Ch-Ua-Mobile": "?0" if mode == 'desktop' else "?1",
-                "Sec-Ch-Ua-Platform": '"Windows"'
+                "Sec-Ch-Ua-Platform": '"Windows"' if mode == 'desktop' else '"Android"'
             }
         )
         
