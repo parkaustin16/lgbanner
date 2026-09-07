@@ -320,6 +320,7 @@ def apply_clean_styles(page_obj):
         [class*="cloud-shoplive"], [class*="csl-"], [class*="svelte-"], 
         .l-cookie-teaser, .c-cookie-settings, .LiveMiniPreview,
         .btn-chip-aigate, .btn-chip-aigate *,
+        .al-quick-btn__quickbtn, .al-quick-btn__topbtn,
         .c-notification-banner, .c-notification-banner *, .c-notification-banner__wrap,
         .open-button, .js-video-pause, .js-video-play, [aria-label*="Pausar"], [aria-label*="video"]
             { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
@@ -342,6 +343,8 @@ def apply_clean_styles(page_obj):
             }
         `;
         document.head.appendChild(style);
+
+        document.querySelectorAll('.al-quick-btn__quickbtn, .al-quick-btn__topbtn').forEach(el => el.remove());
 
         const hideSelectors = ['.c-header', '.navigation', '.iw_viewport-wrapper > header', '.al-quick-btn__quickbtn', '.al-quick-btn__topbtn'];
         hideSelectors.forEach(s => {
