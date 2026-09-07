@@ -606,7 +606,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             page.mouse.move(random.randint(0, 500), random.randint(0, 500))
             
             # Wait for load + network idle so images start fetching
-            response = page.goto(url, wait_until="load", timeout=90000)
+            response = page.goto(url, wait_until="load", timeout=120000)
             if response and response.status >= 400:
                 log(f"❌ Page request failed with HTTP {response.status}; banner content was not loaded.")
                 return
