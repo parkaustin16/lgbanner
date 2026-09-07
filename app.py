@@ -606,7 +606,10 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
             page.mouse.move(random.randint(0, 500), random.randint(0, 500))
             
             # Wait for load + network idle so images start fetching
-            page.goto(url, wait_until="load", timeout=90000)
+            response = page.goto(url, wait_until="load", timeout=90000)
+            if response and response.status >= 400:
+                log(f"❌ Page request failed with HTTP {response.status}; banner content was not loaded.")
+                return
             try:
                 page.wait_for_load_state("networkidle", timeout=15000)
             except:
@@ -815,10 +818,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                         )
                     except:
                         pass
-                    try:
-                        page.wait_for_load_state("networkidle", timeout=8000)
-                    except:
-                        pass
+                    time.sleep(0.5)
 
                     # 3. Apply styles for clean capture
                     apply_clean_styles(page)
@@ -973,7 +973,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
                                     await Promise.all(imgs.map(img => {
                                         if (img.complete && img.naturalWidth > 0) return img.decode ? img.decode().catch(() => {}) : Promise.resolve();
                                         return new Promise((resolve) => {
-                                            const timeoutId = setTimeout(resolve, 3000);
+                                            const timeoutId = setTimeout(resolve, 1500);
                                             const done = () => { clearTimeout(timeoutId); resolve(); };
                                             img.onload = () => { img.decode ? img.decode().catch(() => {}).finally(done) : done(); };
                                             img.onerror = done;
