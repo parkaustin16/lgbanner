@@ -102,6 +102,9 @@ def install_missing_system_packages():
 
 @st.cache_resource
 def install_playwright_browsers():
+    if os.environ.get("CONTAINERIZED") == "1":
+        return
+
     try:
         deps_ok, deps_missing = install_missing_system_packages()
         if not deps_ok and deps_missing:
