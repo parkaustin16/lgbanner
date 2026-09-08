@@ -565,7 +565,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
         
         context = browser.new_context(
             viewport=size, 
-            device_scale_factor=2, # Keep your DPR 2.0
+            device_scale_factor=1,
             user_agent=user_agent,
             locale="en-US",
             timezone_id="America/New_York",
@@ -991,7 +991,7 @@ def capture_hero_banners(url, country_code, mode='desktop', log_callback=None, u
 
                         # Use scale='device' for the screenshot to respect our DPR 2.0
                         # SPEED FIX: Save as JPEG to reduce file size and encoding time
-                        element.screenshot(path=filepath, scale="device", type="jpeg", quality=95)
+                        element.screenshot(path=filepath, scale="css", type="jpeg", quality=85)
                         captured_signatures.append(current_sig)
                         last_captured_sig = current_sig
                         captured_slide_numbers.add(slide_num)
